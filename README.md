@@ -125,6 +125,7 @@ export STUDY_AGENT_MCP_ARGS=""
 study-agent-acp
 ```
 Note: Prefer stopping the ACP process (SIGINT/SIGTERM) so the MCP subprocess is closed cleanly. Killing the MCP directly can leave defunct processes.
+Note: ACP uses a threaded HTTP server by default. Set `STUDY_AGENT_THREADING=0` to disable threading.
 
 2. Run `phenotype_recommendation`
 ```bash

@@ -113,8 +113,11 @@ Candidate selection:
 12. `LLM_DRY_RUN` (default `0`)
 13. `LLM_USE_RESPONSES` (default `0`) selects OpenAI Responses API format instead of Chat Completions. It does not affect MCP tool use.
 14. `LLM_CANDIDATE_LIMIT` (default `10`)
-15. `STUDY_AGENT_HOST` (default `127.0.0.1`)
-16. `STUDY_AGENT_PORT` (default `8765`)
+15. `STUDY_AGENT_MCP_ONESHOT` (default `0`, forced on Windows) runs MCP in per-request oneshot mode to avoid stdio lockups.
+16. `STUDY_AGENT_BASE_DIR` (optional) base directory for resolving relative paths (index dir, banner, outputs).
+17. `STUDY_AGENT_THREADING` (default `1`) uses a threaded HTTP server for ACP. Set to `0` to disable.
+18. `STUDY_AGENT_HOST` (default `127.0.0.1`)
+19. `STUDY_AGENT_PORT` (default `8765`)
 
 **Risks and Mitigations**
 1. Missing dependencies for FAISS

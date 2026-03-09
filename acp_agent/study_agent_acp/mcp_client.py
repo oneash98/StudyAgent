@@ -31,6 +31,8 @@ class StdioMCPClient:
 
     def list_tools(self) -> List[Dict[str, Any]]:
         try:
+            if _prefer_oneshot():
+                return anyio.run(self._list_tools_oneshot)
             self._ensure_session()
             assert self._portal is not None
             return self._portal.call(self._list_tools)
@@ -41,6 +43,8 @@ class StdioMCPClient:
 
     def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         try:
+            if _prefer_oneshot():
+                return anyio.run(self._call_tool_oneshot, name, arguments)
             self._ensure_session()
             assert self._portal is not None
             return self._portal.call(self._call_tool, name, arguments)
@@ -51,6 +55,8 @@ class StdioMCPClient:
 
     def health_check(self) -> Dict[str, Any]:
         try:
+            if _prefer_oneshot():
+                return anyio.run(self._ping_oneshot)
             self._ensure_session()
             assert self._portal is not None
             return self._portal.call(self._ping)
@@ -73,6 +79,20 @@ class StdioMCPClient:
         assert self._session is not None
         await self._session.send_ping()
         return {"ok": True}
+
+    async def _ping_oneshot(self) -> Dict[str, Any]:
+        server = StdioServerParameters(
+            command=self._config.command,
+            args=self._config.args,
+            env=self._config.env or os.environ.copy(),
+            cwd=self._config.cwd,
+        )
+        async with stdio_client(server) as (read_stream, write_stream):
+            session = ClientSession(read_stream, write_stream)
+            async with session:
+                await session.initialize()
+                await session.send_ping()
+                return {"ok": True, "mode": "oneshot"}
 
     async def _list_tools_oneshot(self) -> List[Dict[str, Any]]:
         server = StdioServerParameters(
@@ -147,8 +167,16 @@ class StdioMCPClient:
         self._session = None
 
 
-def _should_use_oneshot(exc: Exception) -> bool:
+def _prefer_oneshot() -> bool:
     if os.getenv("STUDY_AGENT_MCP_ONESHOT", "0") == "1":
+        return True
+    if os.name == "nt":
+        return True
+    return False
+
+
+def _should_use_oneshot(exc: Exception) -> bool:
+    if _prefer_oneshot():
         return True
     message = str(exc)
     if "cancel scope" in message:

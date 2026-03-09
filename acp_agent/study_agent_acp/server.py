@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from typing import Any, Dict, Optional
 
 from .agent import StudyAgent
@@ -15,6 +15,7 @@ SERVICES = [
     {"name": "cohort_critique_general_design", "endpoint": "/flows/cohort_critique_general_design"},
     {"name": "phenotype_validation_review", "endpoint": "/flows/phenotype_validation_review"},
     {"name": "phenotype_recommendation_advice", "endpoint": "/flows/phenotype_recommendation_advice"},
+    {"name": "phenotype_intent_split", "endpoint": "/flows/phenotype_intent_split"},
 ]
 SERVICE_REGISTRY_PATH = os.getenv("STUDY_AGENT_SERVICE_REGISTRY", "docs/SERVICE_REGISTRY.yaml")
 
@@ -78,6 +79,9 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
         return None
 
     def do_GET(self) -> None:
+        if self.debug:
+            content_type = self.headers.get("Content-Type")
+            print(f"ACP GET > path={self.path} content_type={content_type}")
         if self.path == "/health":
             payload = {"status": "ok"}
             if self.mcp_client is not None:
@@ -107,6 +111,10 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
         _write_json(self, 404, {"error": "not_found"})
 
     def do_POST(self) -> None:
+        if self.debug:
+            length = int(self.headers.get("Content-Length", "0"))
+            content_type = self.headers.get("Content-Type")
+            print(f"ACP POST > path={self.path} length={length} content_type={content_type}")
         if self.path == "/tools/call":
             try:
                 body = _read_json(self)
@@ -340,6 +348,28 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
             _write_json(self, status, result)
             return
 
+        if self.path == "/flows/phenotype_intent_split":
+            try:
+                body = _read_json(self)
+            except Exception as exc:
+                _write_json(self, 400, {"error": f"invalid_json: {exc}"})
+                return
+            study_intent = body.get("study_intent") or body.get("query") or ""
+            try:
+                result = self.agent.run_phenotype_intent_split_flow(
+                    study_intent=study_intent,
+                )
+            except Exception as exc:
+                if self.debug:
+                    import traceback
+
+                    traceback.print_exc()
+                _write_json(self, 500, {"error": "flow_failed", "detail": str(exc) if self.debug else None})
+                return
+            status = 200 if result.get("status") != "error" else 500
+            _write_json(self, status, result)
+            return
+
         _write_json(self, 404, {"error": "not_found"})
 
 
@@ -419,6 +449,7 @@ def main(host: str = "127.0.0.1", port: int = 8765) -> None:
     mcp_args = os.getenv("STUDY_AGENT_MCP_ARGS", "")
     allow_core_fallback = os.getenv("STUDY_AGENT_ALLOW_CORE_FALLBACK", "1") == "1"
     debug = os.getenv("STUDY_AGENT_DEBUG", "0") == "1"
+    threaded = os.getenv("STUDY_AGENT_THREADING", "1") == "1"
 
     args_list = [arg for arg in mcp_args.split(" ") if arg]
     agent, mcp_client = _build_agent(mcp_command, args_list, allow_core_fallback)
@@ -431,7 +462,8 @@ def main(host: str = "127.0.0.1", port: int = 8765) -> None:
     Handler.agent = agent
     Handler.mcp_client = mcp_client
     Handler.debug = debug
-    server = HTTPServer((host, port), Handler)
+    server_cls = ThreadingHTTPServer if threaded else HTTPServer
+    server = server_cls((host, port), Handler)
 
     shutdown_lock = threading.Lock()
     shutdown_once = {"done": False}
