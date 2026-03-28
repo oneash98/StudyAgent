@@ -249,9 +249,42 @@ Detailed tests can be found in `docs/TESTING.md` but this one is useful for a qu
 curl -s -X POST http://127.0.0.1:8765/flows/phenotype_intent_split \
   -H 'Content-Type: application/json' \
   -d '{"study_intent":"Identify clinical risk factors for older adult patients who experience an adverse event of acute gastro-intenstinal (GI) bleeding"}'
+```
 
-# expected output something like
+...expected output something like
+```
 {"status": "ok", "llm_used": true, "intent_split": {"plan": "The target cohort identifies the initial group of patients, and the outcome cohort defines the adverse event of interest to be tracked over time in this cohort.", "target_statement": "Patients aged 65 years and older who have a record of admission to a hospital.", "outcome_statement": "Patients aged 65 years and older who have a record of acute gastrointestinal (GI) bleeding.", "rationale": "This split defines the cohort of older adults at risk of GI bleeding (target) and identifies the specific adverse event we will be tracking in this population (outcome).", "questions": ["What are the specific definitions of 'acute GI bleeding' and 'hospital admission' within the study?", "Are there specific GI conditions that should be included or excluded from the outcome cohort (e.g., ulcers, diverticulitis)?", "What is the desired timeframe for the follow-up period after the index date?"], "mode": "llm"}}%
+```
+
+Another example, this one examining safe harbor patient data to determinee if a GI bleed occurred:
+```
+curl -s -X POST http://127.0.0.1:8765/flows/phenotype_validation_review \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "disease_name": "Gastrointestinal bleeding",
+    "keeper_row": {
+      "age": 44,
+      "gender": "Male",
+      "visitContext": "Inpatient Visit",
+      "presentation": "Gastrointestinal hemorrhage",
+      "priorDisease": "Peptic ulcer",
+      "symptoms": "",
+      "comorbidities": "",
+      "priorDrugs": "celecoxib",
+      "priorTreatmentProcedures": "",
+      "diagnosticProcedures": "",
+      "measurements": "",
+      "alternativeDiagnosis": "",
+      "afterDisease": "",
+      "afterDrugs": "Naproxen",
+      "afterTreatmentProcedures": ""
+    }
+  }'
+```
+
+...expected result something like: 
+```
+{"status": "ok", "tool": "keeper_parse_response", "warnings": [], "safe_summary": {"plan": null}, "full_result": {"label": "yes", "rationale": "The patient's diagnosis recorded on the day of the visit is 'Gastrointestinal hemorrhage', which directly indicates the presence of GI bleeding. This is sufficient evidence to confirm the presence of the phenotype.", "_meta": {"tool": "keeper_parse_response"}}, "llm_used": true}
 ```
 
 ## Planned Services
