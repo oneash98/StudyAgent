@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 from study_agent_mcp.tools import register_all
 from study_agent_mcp.retrieval import index_status
 
-mcp = FastMCP("study-agent")
+mcp = FastMCP("study-agent", host=os.getenv("MCP_HOST", "0.0.0.0"))
 register_all(mcp)
 
 def _log(level: str, message: str) -> None:

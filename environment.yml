@@ -11,5 +11,6 @@ dependencies:
       - mcp
       - numpy
       - pydantic
+      - pyyaml      
       - pytest
       - requests

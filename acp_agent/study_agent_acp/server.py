@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from typing import Any, Dict, Optional
 
@@ -68,6 +69,23 @@ def _load_registry_services() -> tuple[list[Dict[str, Any]], list[str]]:
     return services, warnings
 
 
+def _call_mcp_tool_with_retry(mcp_client: object, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return mcp_client.call_tool(name, arguments)
+    except Exception as exc:
+        message = str(exc)
+        if "cancel scope" not in message.lower():
+            raise
+        close = getattr(mcp_client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+        return mcp_client.call_tool(name, arguments)
+
+
+
 class ACPRequestHandler(BaseHTTPRequestHandler):
     agent: StudyAgent
     mcp_client: Optional[object]
@@ -82,21 +100,37 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
         if self.debug:
             content_type = self.headers.get("Content-Type")
             print(f"ACP GET > path={self.path} content_type={content_type}")
-        if self.path == "/health":
+
+        parsed = urlsplit(self.path)
+
+        if parsed.path == "/health":
             payload = {"status": "ok"}
             if self.mcp_client is not None:
                 payload["mcp"] = self.mcp_client.health_check()
-                if payload["mcp"].get("ok"):
+                params = parse_qs(parsed.query)
+                deep = (
+                    params.get("deep", ["0"])[0] == "1"
+                    or os.getenv("STUDY_AGENT_HEALTH_DEEP", "0") == "1"
+                )
+                payload["mcp_index"] = {"skipped": not deep}
+                if deep and payload["mcp"].get("ok"):
                     try:
-                        payload["mcp_index"] = self.mcp_client.call_tool("phenotype_index_status", {})
+                        payload["mcp_index"] = _call_mcp_tool_with_retry(
+                            self.mcp_client,
+                            "phenotype_index_status",
+                            {},
+                        )
                     except Exception as exc:
                         payload["mcp_index"] = {"error": str(exc)}
+
             _write_json(self, 200, payload)
             return
-        if self.path == "/tools":
+
+        if parsed.path == "/tools":
             _write_json(self, 200, {"tools": self.agent.list_tools()})
             return
-        if self.path == "/services":
+
+        if parsed.path == "/services":
             registry_services, warnings = _load_registry_services()
             registry_map = {svc["endpoint"]: svc for svc in registry_services}
             runtime_map = {svc["endpoint"]: svc for svc in SERVICES}
@@ -113,6 +147,7 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
 
             _write_json(self, 200, {"services": services, "warnings": warnings})
             return
+
         _write_json(self, 404, {"error": "not_found"})
 
     def do_POST(self) -> None:
@@ -519,8 +554,9 @@ def main(host: str = "127.0.0.1", port: int = 8765) -> None:
         except Exception:
             pass
 
-    signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
     _serve(server, mcp_client)
 
 
@@ -528,8 +564,14 @@ def _serve(server: HTTPServer, mcp_client: Optional[object]) -> None:
     try:
         server.serve_forever()
     finally:
-        if mcp_client is not None:
-            mcp_client.close()
+        try:
+            server.server_close()
+        finally:
+            if mcp_client is not None:
+                try:
+                    mcp_client.close()
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":
