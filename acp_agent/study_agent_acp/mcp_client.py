@@ -135,6 +135,8 @@ class StdioMCPClient:
         with self._lock:
             if self._session is not None:
                 return
+            self._session = None
+            self._exit_stack = None
             self._portal_cm = start_blocking_portal()
             self._portal = self._portal_cm.__enter__()
             assert self._portal is not None
@@ -155,6 +157,24 @@ class StdioMCPClient:
         self._session = session
 
     def close(self) -> None:
+        portal = self._portal
+        try:
+            if portal is not None:
+                try:
+                    portal.call(self._async_close)
+                except Exception:
+                    pass
+        finally:
+            if self._portal_cm is not None:
+                try:
+                    self._portal_cm.__exit__(None, None, None)
+                except Exception:
+                    pass
+                self._portal_cm = None
+            self._portal = None
+            self._session = None
+            self._exit_stack = None
+        
         if self._portal is None:
             return
         try:
@@ -214,13 +234,15 @@ class HttpMCPClient:
 
     def list_tools(self) -> List[Dict[str, Any]]:
         self._ensure_session()
-        assert self._portal is not None
-        return self._portal.call(self._list_tools)
+        with self._lock:
+            assert self._portal is not None
+            return self._portal.call(self._list_tools)
 
     def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         self._ensure_session()
-        assert self._portal is not None
-        return self._portal.call(self._call_tool, name, arguments)
+        with self._lock:
+            assert self._portal is not None
+            return self._portal.call(self._call_tool, name, arguments)
 
     def health_check(self) -> Dict[str, Any]:
         if self._host and self._port:
@@ -231,8 +253,9 @@ class HttpMCPClient:
                 return {"ok": False, "error": str(exc)}
         try:
             self._ensure_session()
-            assert self._portal is not None
-            return self._portal.call(self._ping)
+            with self._lock:
+                assert self._portal is not None
+                return self._portal.call(self._ping)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -259,6 +282,8 @@ class HttpMCPClient:
         with self._lock:
             if self._session is not None:
                 return
+            self._session = None
+            self._exit_stack = None
             self._portal_cm = start_blocking_portal()
             self._portal = self._portal_cm.__enter__()
             assert self._portal is not None
@@ -279,17 +304,24 @@ class HttpMCPClient:
         await self._exit_stack.enter_async_context(session)
         await session.initialize()
         self._session = session
-
     def close(self) -> None:
-        if self._portal is None:
-            return
+        portal = self._portal
         try:
-            self._portal.call(self._async_close)
+            if portal is not None:
+                try:
+                    portal.call(self._async_close)
+                except Exception:
+                    pass
         finally:
             if self._portal_cm is not None:
-                self._portal_cm.__exit__(None, None, None)
+                try:
+                    self._portal_cm.__exit__(None, None, None)
+                except Exception:
+                    pass
                 self._portal_cm = None
             self._portal = None
+            self._session = None
+            self._exit_stack = None
 
     async def _async_close(self) -> None:
         if self._exit_stack is not None:

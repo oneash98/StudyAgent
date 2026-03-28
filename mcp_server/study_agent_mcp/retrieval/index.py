@@ -11,6 +11,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from study_agent_core.net import rewrite_container_host_url
+
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -328,7 +330,9 @@ def get_default_index() -> PhenotypeIndex:
         catalog_info = status["files"].get("catalog") or {}
         if not catalog_info.get("exists"):
             raise RuntimeError(f"Phenotype catalog not found: {catalog_info.get('path')}")
-        embed_url = os.getenv("EMBED_URL", "http://localhost:3000/ollama/api/embed")
+        embed_url = rewrite_container_host_url(
+            os.getenv("EMBED_URL", "http://localhost:3000/ollama/api/embed")
+            )
         embed_model = os.getenv("EMBED_MODEL", "qwen3-embedding:4b")
         api_key = os.getenv("EMBED_API_KEY")
         embedding_client = EmbeddingClient(url=embed_url, model=embed_model, api_key=api_key)

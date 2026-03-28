@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional
 
+from study_agent_core.net import rewrite_container_host_url
 
 def build_prompt(
     overview: str,
@@ -219,6 +220,8 @@ def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
 
 def call_llm(prompt: str) -> Optional[Dict[str, Any]]:
     api_url = os.getenv("LLM_API_URL", "http://localhost:3000/api/chat/completions")
+    api_url = rewrite_container_host_url(api_url)
+
     api_key = os.getenv("LLM_API_KEY")
     model = os.getenv("LLM_MODEL", "agentstudyassistant")
     timeout = int(os.getenv("LLM_TIMEOUT", "180"))

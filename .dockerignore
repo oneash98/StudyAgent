@@ -51,7 +51,7 @@ ENV/
 # Documentation
 *.md
 !README.md
-docs/
+
 
 # Tests
 tests/

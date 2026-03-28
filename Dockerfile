@@ -12,6 +12,7 @@ RUN micromamba install -y -n base -f /tmp/environment.yml && \
 COPY --chown=$MAMBA_USER:$MAMBA_USER core/ ./core/
 COPY --chown=$MAMBA_USER:$MAMBA_USER mcp_server/ ./mcp_server/
 COPY --chown=$MAMBA_USER:$MAMBA_USER acp_agent/ ./acp_agent/
+COPY --chown=$MAMBA_USER:$MAMBA_USER docs/ ./docs/
 COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml ./
 
 RUN micromamba run -n base pip install --no-cache-dir -e .
@@ -28,6 +29,7 @@ ENV PYTHONUNBUFFERED=1 \
     MCP_PATH=/mcp \
     STUDY_AGENT_HOST=0.0.0.0 \
     STUDY_AGENT_PORT=8765 \
-    STUDY_AGENT_MCP_URL=http://localhost:8790/mcp
+    STUDY_AGENT_HOST_GATEWAY=host.docker.internal \
+    STUDY_AGENT_MCP_URL=http://host.docker.internal:8790/mcp
 
 CMD ["micromamba", "run", "-n", "base", "study-agent-mcp"]
