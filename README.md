@@ -1,5 +1,8 @@
 # OHDSI Study Design Assistant (in development)
 
+## Announcements
+- 03/28/2026 : this stack is now containerized - see `Docker quickstart` below.
+
 ## Overview
 
 The goal OHDSI Study Design Assistant (SDA) is to provide an experience similar to working with a coding agent but for designing and executing observational retrospective studies using OHDSI tools. SDA is designed to organize and enable users to interact with a wide variety of agentic tools to suppor their study work.  It does so by providing a clean separation between the agentic user experience and the generative AI tools. Check out the tag `first_agent_and_strategus` for the first version to assist with Strategus (not validated) as shown in the [more recent video for the second version](https://pitt.hosted.panopto.com/Panopto/Pages/Viewer.aspx?id=34ed8cfe-2e4c-40b7-9efa-b40800b75bd5) (no sound). This demonstrates a possible way for the agent to help the user design, run, and interpret the results of an OHDSI incidence rate analysis using the [CohortIncidenceModule](https://raw.githubusercontent.com/OHDSI/Strategus/main/inst/doc/CreatingAnalysisSpecification.pdf) of  [OHDSI Strategus](https://github.com/OHDSI/Strategus). This older [ video](https://pitt.hosted.panopto.com/Panopto/Pages/Viewer.aspx?id=f802b01f-9bce-4f38-a4c4-b3f800e6ebdd&start=254) shows an prior test of this concept.
@@ -208,7 +211,7 @@ STUDY_AGENT_DEBUG=1
 2. Build and start both services:
 
 ```bash
-docker compose up --build -d
+sudo docker compose up --build -d  # you might not need sudo depending on your docker set up
 ```
 
 3. Check service health and tool listing:
@@ -239,6 +242,17 @@ curl -s http://127.0.0.1:8765/services | python -m json.tool
 Notes:
 - ACP is exposed on port 8765 and MCP on port 8790.
 - The phenotype index is mounted from `./data/phenotype_index` into MCP at `/data/phenotype_index`.
+
+Detailed tests can be found in `docs/TESTING.md` but this one is useful for a quick check that a tool that uses the chat completion is functioning reachable:
+```
+# phenotype_intent_split
+curl -s -X POST http://127.0.0.1:8765/flows/phenotype_intent_split \
+  -H 'Content-Type: application/json' \
+  -d '{"study_intent":"Identify clinical risk factors for older adult patients who experience an adverse event of acute gastro-intenstinal (GI) bleeding"}'
+
+# expected output something like
+{"status": "ok", "llm_used": true, "intent_split": {"plan": "The target cohort identifies the initial group of patients, and the outcome cohort defines the adverse event of interest to be tracked over time in this cohort.", "target_statement": "Patients aged 65 years and older who have a record of admission to a hospital.", "outcome_statement": "Patients aged 65 years and older who have a record of acute gastrointestinal (GI) bleeding.", "rationale": "This split defines the cohort of older adults at risk of GI bleeding (target) and identifies the specific adverse event we will be tracking in this population (outcome).", "questions": ["What are the specific definitions of 'acute GI bleeding' and 'hospital admission' within the study?", "Are there specific GI conditions that should be included or excluded from the outcome cohort (e.g., ulcers, diverticulitis)?", "What is the desired timeframe for the follow-up period after the index date?"], "mode": "llm"}}%
+```
 
 ## Planned Services
 
