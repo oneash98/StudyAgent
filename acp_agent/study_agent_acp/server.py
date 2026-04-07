@@ -21,6 +21,44 @@ SERVICES = [
 SERVICE_REGISTRY_PATH = os.getenv("STUDY_AGENT_SERVICE_REGISTRY", "docs/SERVICE_REGISTRY.yaml")
 
 
+def _sanitize_config_value(name: str, value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    upper = name.upper()
+    if "KEY" in upper or "TOKEN" in upper or "SECRET" in upper:
+        return "***"
+    return value
+
+
+def _log_startup_config() -> None:
+    config_names = [
+        "LLM_API_URL",
+        "LLM_MODEL",
+        "LLM_USE_RESPONSES",
+        "LLM_TIMEOUT",
+        "STUDY_AGENT_MCP_TIMEOUT",
+        "LLM_CANDIDATE_LIMIT",
+        "LLM_RECOMMENDATION_MAX_RESULTS",
+        "LLM_RECOMMENDATION_TOP_K",
+        "EMBED_TIMEOUT",
+        "ACP_TIMEOUT",
+    ]
+    items = []
+    for name in config_names:
+        items.append(f"{name}={_sanitize_config_value(name, os.getenv(name))}")
+    print("ACP CONFIG > " + " ".join(items))
+
+
+def _warn_on_inconsistent_llm_config() -> None:
+    api_url = os.getenv("LLM_API_URL", "")
+    use_responses = os.getenv("LLM_USE_RESPONSES", "0")
+    if "/api/chat/completions" in api_url and use_responses == "1":
+        print(
+            "ACP WARN > LLM_API_URL targets /api/chat/completions while LLM_USE_RESPONSES=1. "
+            "Set LLM_USE_RESPONSES=0 for chat-completions compatibility."
+        )
+
+
 def _read_json(handler: BaseHTTPRequestHandler) -> Dict[str, Any]:
     length = int(handler.headers.get("Content-Length", "0"))
     if length <= 0:
@@ -499,7 +537,9 @@ def main(host: str = "127.0.0.1", port: int = 8765) -> None:
     mcp_cwd = os.getenv("STUDY_AGENT_MCP_CWD") or os.getcwd()
     mcp_url = os.getenv("STUDY_AGENT_MCP_URL")
     mcp_token = os.getenv("STUDY_AGENT_MCP_TOKEN")
-    mcp_timeout = int(os.getenv("STUDY_AGENT_MCP_TIMEOUT", "30"))
+    mcp_timeout = int(os.getenv("STUDY_AGENT_MCP_TIMEOUT", "240"))
+    _log_startup_config()
+    _warn_on_inconsistent_llm_config()
 
     if mcp_url:
         if "://" in mcp_url and ":" not in mcp_url.split("://", 1)[1]:
@@ -565,7 +605,9 @@ def _serve(server: HTTPServer, mcp_client: Optional[object]) -> None:
         server.serve_forever()
     finally:
         try:
-            server.server_close()
+            close = getattr(server, "server_close", None)
+            if callable(close):
+                close()
         finally:
             if mcp_client is not None:
                 try:

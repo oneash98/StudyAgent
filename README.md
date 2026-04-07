@@ -60,6 +60,8 @@ See `docs/TESTING.md` for install and CLI smoke tests.
 3. ACP calls an OpenAI-compatible LLM API to rank candidates.
 4. Core validates and filters LLM output.
 
+The flow now returns explicit LLM diagnostics and fallback metadata. When ACP falls back to deterministic core behavior, the response includes `llm_used`, `llm_status`, `fallback_reason`, `fallback_mode`, and a small `diagnostics` object instead of silently degrading.
+
 For details on the design, see `docs/PHENOTYPE_RECOMMENDATION_DESIGN.md`.
 
 ### `phenotype_improvements` flow (ACP + MCP + LLM)
@@ -198,12 +200,18 @@ Recommended contents of `.env`:
 EMBED_API_KEY=<your api key>
 EMBED_MODEL=<an embedding model>
 EMBED_URL=http://172.17.0.1:3000/ollama/api/embed  # or equivalent
+EMBED_TIMEOUT=120
 LLM_API_KEY=<your api key>
 LLM_API_URL=http://172.17.0.1:3000/api/chat/completions # or equivalent
 LLM_MODEL=<a chat completion model>
 LLM_LOG=1 
 LLM_USE_RESPONSES=0
-LLM_TIMEOUT=180 
+LLM_TIMEOUT=300
+STUDY_AGENT_MCP_TIMEOUT=240
+ACP_TIMEOUT=360
+LLM_CANDIDATE_LIMIT=5
+LLM_RECOMMENDATION_TOP_K=20
+LLM_RECOMMENDATION_MAX_RESULTS=3
 STUDY_AGENT_ALLOW_CORE_FALLBACK=0
 STUDY_AGENT_DEBUG=1
 ```
@@ -242,6 +250,51 @@ curl -s http://127.0.0.1:8765/services | python -m json.tool
 Notes:
 - ACP is exposed on port 8765 and MCP on port 8790.
 - The phenotype index is mounted from `./data/phenotype_index` into MCP at `/data/phenotype_index`.
+
+### Constrained deployment guidance
+
+Recommended timeout ladder:
+
+- `ACP_TIMEOUT=360`
+- `LLM_TIMEOUT=300`
+- `STUDY_AGENT_MCP_TIMEOUT=240`
+- `EMBED_TIMEOUT=120` to `180`
+
+Recommendation tuning knobs:
+
+- `LLM_USE_RESPONSES=0` is the default and the recommended setting when `LLM_API_URL` points at `/api/chat/completions`.
+- `LLM_CANDIDATE_LIMIT=5` trims recommendation prompts before the LLM call.
+- `LLM_RECOMMENDATION_TOP_K=20` controls retrieval breadth before truncation.
+- `LLM_RECOMMENDATION_MAX_RESULTS=3` keeps early recommendation outputs small and easier to parse.
+
+Recommendation responses now include explicit fallback metadata and diagnostics. Example parse-failure fallback:
+
+```json
+{
+  "status": "ok",
+  "llm_used": false,
+  "llm_status": "json_parse_failed",
+  "fallback_reason": "llm_json_parse_failed",
+  "fallback_mode": "stub",
+  "candidate_limit": 5,
+  "candidate_count": 5,
+  "diagnostics": {
+    "llm_status": "json_parse_failed",
+    "llm_duration_seconds": 12.5,
+    "llm_error": "json_parse_failed",
+    "llm_parse_stage": "chat_completions_content:json_loads",
+    "llm_schema_valid": false
+  }
+}
+```
+
+You can also derive environment-specific timeout starting values with:
+
+```bash
+doit calibrate_timeouts
+```
+
+The calibration task samples the main structured phenotype flows, compares multiple candidate limits, and writes both a recommended timeout `.env` fragment and a JSON timing report.
 
 Detailed tests can be found in `docs/TESTING.md` but this one is useful for a quick check that a tool that uses the chat completion is functioning reachable:
 ```

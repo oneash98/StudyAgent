@@ -3,6 +3,7 @@ import pytest
 from study_agent_acp import server as acp_server
 from study_agent_acp.mcp_client import StdioMCPClient
 from study_agent_acp.agent import StudyAgent
+from study_agent_acp.llm_client import LLMCallResult
 
 
 @pytest.mark.acp
@@ -180,8 +181,34 @@ def test_flow_phenotype_recommendation_advice(monkeypatch):
     )
     assert result["status"] == "ok"
     assert result["llm_used"] is True
+    assert result["llm_status"] == "ok"
     assert result["advice"]["advice"] == "Refine intent"
     assert "Intent text" in captured.get("prompt", "")
+
+
+@pytest.mark.acp
+def test_flow_phenotype_recommendation_advice_parse_failure(monkeypatch):
+    import study_agent_acp.agent as agent_module
+
+    def fake_llm(prompt, required_keys=None):
+        return LLMCallResult(
+            status="json_parse_failed",
+            error="json_parse_failed",
+            parse_stage="chat_completions_content:json_brace_extract",
+            request_mode="chat_completions",
+        )
+
+    monkeypatch.setattr(agent_module, "call_llm", fake_llm)
+    agent = StudyAgent(mcp_client=StubMCPClient())
+    result = agent.run_phenotype_recommendation_advice_flow(
+        study_intent="Intent text",
+    )
+    assert result["status"] == "ok"
+    assert result["llm_used"] is False
+    assert result["llm_status"] == "json_parse_failed"
+    assert result["fallback_reason"] == "llm_json_parse_failed"
+    assert result["fallback_mode"] == "stub"
+    assert result["advice"]["mode"] == "stub"
 
 
 @pytest.mark.acp
@@ -238,8 +265,35 @@ def test_flow_phenotype_intent_split(monkeypatch):
     )
     assert result["status"] == "ok"
     assert result["llm_used"] is True
+    assert result["llm_status"] == "ok"
     assert result["intent_split"]["target_statement"] == "Target cohort"
     assert "Intent text" in captured.get("prompt", "")
+
+
+@pytest.mark.acp
+def test_flow_phenotype_intent_split_schema_mismatch(monkeypatch):
+    import study_agent_acp.agent as agent_module
+
+    def fake_llm(prompt, required_keys=None):
+        return LLMCallResult(
+            status="schema_mismatch",
+            parsed_content={"target_statement": "Target only"},
+            parse_stage="chat_completions_content:schema",
+            error="missing_required_keys:outcome_statement,rationale",
+            missing_keys=["outcome_statement", "rationale"],
+            schema_valid=False,
+            request_mode="chat_completions",
+        )
+
+    monkeypatch.setattr(agent_module, "call_llm", fake_llm)
+    agent = StudyAgent(mcp_client=StubMCPClient())
+    result = agent.run_phenotype_intent_split_flow(
+        study_intent="Intent text",
+    )
+    assert result["status"] == "error"
+    assert result["error"] == "llm_unavailable"
+    assert result["diagnostics"]["llm_status"] == "schema_mismatch"
+    assert result["diagnostics"]["llm_missing_keys"] == ["outcome_statement", "rationale"]
 
 
 @pytest.mark.acp

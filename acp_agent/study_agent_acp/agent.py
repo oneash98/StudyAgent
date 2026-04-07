@@ -18,6 +18,7 @@ from study_agent_core.tools import (
     propose_concept_set_diff,
 )
 from .llm_client import (
+    LLMCallResult,
     build_intent_split_prompt,
     build_advice_prompt,
     build_improvements_prompt,
@@ -25,6 +26,8 @@ from .llm_client import (
     build_lint_prompt,
     build_prompt,
     call_llm,
+    coerce_llm_call_result,
+    llm_result_payload,
 )
 
 
@@ -64,6 +67,56 @@ class StudyAgent:
             "phenotype_improvements": PhenotypeImprovementsInput.model_json_schema(),
             "phenotype_intent_split": PhenotypeIntentSplitInput.model_json_schema(),
         }
+
+    def _debug_enabled(self) -> bool:
+        return os.getenv("STUDY_AGENT_DEBUG", "0") == "1"
+
+    def _log_debug(self, message: str) -> None:
+        if self._debug_enabled():
+            print(f"ACP DEBUG > {message}")
+
+    def _llm_diagnostics(self, result: Optional[LLMCallResult]) -> Dict[str, Any]:
+        if result is None:
+            return {
+                "llm_status": "disabled",
+                "llm_duration_seconds": 0.0,
+                "llm_error": "llm_result_missing",
+                "llm_parse_stage": None,
+                "llm_schema_valid": False,
+            }
+        diagnostics = {
+            "llm_status": result.status,
+            "llm_duration_seconds": result.duration_seconds,
+            "llm_error": result.error,
+            "llm_parse_stage": result.parse_stage,
+            "llm_schema_valid": bool(result.schema_valid) if result.schema_valid is not None else result.status == "ok",
+            "llm_request_mode": result.request_mode,
+        }
+        if result.missing_keys:
+            diagnostics["llm_missing_keys"] = result.missing_keys
+        if os.getenv("LLM_LOG_RESPONSE", "0") == "1":
+            diagnostics["llm_raw_response"] = result.raw_response
+            diagnostics["llm_content_text"] = result.content_text
+        return diagnostics
+
+    def _fallback_reason_for_llm(self, result: Optional[LLMCallResult]) -> str:
+        if result is None:
+            return "llm_empty_result"
+        mapping = {
+            "timeout": "llm_timeout",
+            "http_error": "llm_http_error",
+            "transport_error": "llm_transport_error",
+            "json_parse_failed": "llm_json_parse_failed",
+            "schema_mismatch": "llm_schema_mismatch",
+            "disabled": "llm_disabled",
+        }
+        return mapping.get(result.status, "llm_empty_result")
+
+    def _call_llm(self, prompt: str, required_keys: Optional[List[str]] = None) -> LLMCallResult:
+        try:
+            return coerce_llm_call_result(call_llm(prompt, required_keys=required_keys))
+        except TypeError:
+            return coerce_llm_call_result(call_llm(prompt))
 
     def list_tools(self) -> List[Dict[str, Any]]:
         if self._mcp_client is not None:
@@ -126,8 +179,8 @@ class StudyAgent:
     def run_phenotype_recommendation_flow(
         self,
         study_intent: str,
-        top_k: int = 20,
-        max_results: int = 10,
+        top_k: Optional[int] = None,
+        max_results: Optional[int] = None,
         candidate_limit: Optional[int] = None,
         candidate_offset: Optional[int] = None,
     ) -> Dict[str, Any]:
@@ -135,15 +188,21 @@ class StudyAgent:
             return {"status": "error", "error": "missing study_intent"}
         if self._mcp_client is None:
             return {"status": "error", "error": "MCP client unavailable"}
+        if top_k is None:
+            top_k = int(os.getenv("LLM_RECOMMENDATION_TOP_K", "20"))
+        if max_results is None:
+            max_results = int(os.getenv("LLM_RECOMMENDATION_MAX_RESULTS", "3"))
 
         search_args = {"query": study_intent, "top_k": top_k}
         if candidate_offset is not None:
             search_args["offset"] = int(candidate_offset)
 
+        self._log_debug(f"phenotype_recommendation: phenotype_search start top_k={top_k} offset={candidate_offset or 0}")
         search_result = self.call_tool(
             name="phenotype_search",
             arguments=search_args,
         )
+        self._log_debug(f"phenotype_recommendation: phenotype_search end status={search_result.get('status')}")
         if search_result.get("status") != "ok":
             return {
                 "status": "error",
@@ -170,16 +229,24 @@ class StudyAgent:
                 "error": "phenotype_search_failed",
                 "details": full,
             }
-        candidates = full.get("results") or []
+        all_candidates = full.get("results") or []
         if candidate_limit is None:
-            candidate_limit = int(os.getenv("LLM_CANDIDATE_LIMIT", "10"))
+            candidate_limit = int(os.getenv("LLM_CANDIDATE_LIMIT", "5"))
+        pre_truncation_count = len(all_candidates)
+        candidates = all_candidates
         if candidate_limit > 0:
             candidates = candidates[:candidate_limit]
+        self._log_debug(
+            "phenotype_recommendation: candidate counts "
+            f"before={pre_truncation_count} after={len(candidates)} limit={candidate_limit}"
+        )
 
+        self._log_debug("phenotype_recommendation: prompt bundle fetch start")
         prompt_bundle = self.call_tool(
             name="phenotype_prompt_bundle",
             arguments={"task": "phenotype_recommendations"},
         )
+        self._log_debug(f"phenotype_recommendation: prompt bundle fetch end status={prompt_bundle.get('status')}")
         prompt_full = prompt_bundle.get("full_result") or {}
         if prompt_bundle.get("status") != "ok" or prompt_full.get("error"):
             return {
@@ -196,7 +263,14 @@ class StudyAgent:
             candidates=candidates,
             max_results=max_results,
         )
-        llm_result = call_llm(prompt)
+        self._log_debug(
+            f"phenotype_recommendation: llm start prompt_chars={len(prompt)} candidate_count={len(candidates)}"
+        )
+        llm_result = self._call_llm(prompt, required_keys=["plan", "phenotype_recommendations"])
+        self._log_debug(
+            "phenotype_recommendation: llm end "
+            f"status={llm_result.status} seconds={llm_result.duration_seconds:.2f} parse_stage={llm_result.parse_stage}"
+        )
         catalog_rows = []
         for row in candidates:
             if not isinstance(row, dict):
@@ -208,22 +282,34 @@ class StudyAgent:
                     "short_description": row.get("short_description"),
                 }
             )
+        llm_payload = llm_result_payload(llm_result)
 
         core_result = phenotype_recommendations(
             protocol_text=study_intent,
             catalog_rows=catalog_rows,
             max_results=max_results,
-            llm_result=llm_result,
+            llm_result=llm_payload,
         )
+        llm_used = llm_payload is not None
+        fallback_reason = None if llm_used else self._fallback_reason_for_llm(llm_result)
+        fallback_mode = None if llm_used else core_result.get("mode")
+        if fallback_reason:
+            self._log_debug(f"phenotype_recommendation: fallback chosen reason={fallback_reason} mode={fallback_mode}")
 
         return {
             "status": "ok",
             "search": full,
-            "llm_used": llm_result is not None,
+            "llm_used": llm_used,
+            "llm_status": llm_result.status,
+            "fallback_reason": fallback_reason,
+            "fallback_mode": fallback_mode,
             "candidate_limit": candidate_limit,
             "candidate_offset": candidate_offset or 0,
             "candidate_count": len(candidates),
+            "candidate_count_before_truncation": pre_truncation_count,
+            "prompt_length_chars": len(prompt),
             "recommendations": core_result,
+            "diagnostics": self._llm_diagnostics(llm_result),
         }
 
     def run_phenotype_recommendation_advice_flow(
@@ -253,16 +339,21 @@ class StudyAgent:
             output_schema=prompt_full.get("output_schema", {}),
             study_intent=study_intent,
         )
-        llm_result = call_llm(prompt)
+        llm_result = self._call_llm(prompt, required_keys=["advice"])
+        llm_payload = llm_result_payload(llm_result)
         core_result = phenotype_recommendation_advice(
             study_intent=study_intent,
-            llm_result=llm_result,
+            llm_result=llm_payload,
         )
 
         return {
             "status": "ok",
-            "llm_used": llm_result is not None,
+            "llm_used": llm_payload is not None,
+            "llm_status": llm_result.status,
+            "fallback_reason": None if llm_payload is not None else self._fallback_reason_for_llm(llm_result),
+            "fallback_mode": None if llm_payload is not None else core_result.get("mode"),
             "advice": core_result,
+            "diagnostics": self._llm_diagnostics(llm_result),
         }
 
     def run_phenotype_intent_split_flow(
@@ -273,8 +364,6 @@ class StudyAgent:
             return {"status": "error", "error": "missing study_intent"}
         if self._mcp_client is None:
             return {"status": "error", "error": "MCP client unavailable"}
-        debug = os.getenv("STUDY_AGENT_DEBUG", "0") == "1"
-
         prompt_bundle = self.call_tool(
             name="phenotype_intent_split",
             arguments={},
@@ -293,25 +382,30 @@ class StudyAgent:
             output_schema=prompt_full.get("output_schema", {}),
             study_intent=study_intent,
         )
-        if debug:
-            print("ACP DEBUG > phenotype_intent_split: calling LLM")
-        llm_result = call_llm(prompt)
-        if debug:
-            print("ACP DEBUG > phenotype_intent_split: LLM returned")
-        if llm_result is None:
+        self._log_debug("phenotype_intent_split: calling LLM")
+        llm_result = self._call_llm(prompt, required_keys=["target_statement", "outcome_statement", "rationale"])
+        self._log_debug(
+            "phenotype_intent_split: LLM returned "
+            f"status={llm_result.status} parse_stage={llm_result.parse_stage}"
+        )
+        llm_payload = llm_result_payload(llm_result)
+        if llm_payload is None:
             return {
                 "status": "error",
                 "error": "llm_unavailable",
+                "diagnostics": self._llm_diagnostics(llm_result),
             }
         core_result = phenotype_intent_split(
             study_intent=study_intent,
-            llm_result=llm_result,
+            llm_result=llm_payload,
         )
 
         return {
             "status": "ok",
-            "llm_used": llm_result is not None,
+            "llm_used": True,
+            "llm_status": llm_result.status,
             "intent_split": core_result,
+            "diagnostics": self._llm_diagnostics(llm_result),
         }
 
     def run_phenotype_improvements_flow(
@@ -343,7 +437,8 @@ class StudyAgent:
             study_intent=protocol_text,
             cohorts=cohorts,
         )
-        llm_result = call_llm(prompt)
+        llm_result = coerce_llm_call_result(call_llm(prompt))
+        llm_payload = llm_result_payload(llm_result)
 
         result = self.call_tool(
             name="phenotype_improvements",
@@ -351,11 +446,13 @@ class StudyAgent:
                 "protocol_text": protocol_text,
                 "cohorts": cohorts,
                 "characterization_previews": characterization_previews or [],
-                "llm_result": llm_result,
+                "llm_result": llm_payload,
             },
         )
         if isinstance(result, dict):
-            result.setdefault("llm_used", llm_result is not None)
+            result.setdefault("llm_used", llm_payload is not None)
+            result.setdefault("llm_status", llm_result.status)
+            result.setdefault("diagnostics", self._llm_diagnostics(llm_result))
             result.setdefault("cohort_count", len(cohorts))
         return result
 
@@ -385,17 +482,20 @@ class StudyAgent:
             payload={"concept_set": concept_set, "study_intent": study_intent},
             max_kb=15,
         )
-        llm_result = call_llm(prompt)
+        llm_result = coerce_llm_call_result(call_llm(prompt))
+        llm_payload = llm_result_payload(llm_result)
         result = self.call_tool(
             name="propose_concept_set_diff",
             arguments={
                 "concept_set": concept_set,
                 "study_intent": study_intent,
-                "llm_result": llm_result,
+                "llm_result": llm_payload,
             },
         )
         if isinstance(result, dict):
-            result.setdefault("llm_used", llm_result is not None)
+            result.setdefault("llm_used", llm_payload is not None)
+            result.setdefault("llm_status", llm_result.status)
+            result.setdefault("diagnostics", self._llm_diagnostics(llm_result))
         return result
 
     def run_cohort_critique_general_design_flow(
@@ -423,16 +523,19 @@ class StudyAgent:
             payload={"cohort": cohort},
             max_kb=15,
         )
-        llm_result = call_llm(prompt)
+        llm_result = coerce_llm_call_result(call_llm(prompt))
+        llm_payload = llm_result_payload(llm_result)
         result = self.call_tool(
             name="cohort_lint",
             arguments={
                 "cohort": cohort,
-                "llm_result": llm_result,
+                "llm_result": llm_payload,
             },
         )
         if isinstance(result, dict):
-            result.setdefault("llm_used", llm_result is not None)
+            result.setdefault("llm_used", llm_payload is not None)
+            result.setdefault("llm_status", llm_result.status)
+            result.setdefault("diagnostics", self._llm_diagnostics(llm_result))
         return result
 
     def run_phenotype_validation_review_flow(
@@ -491,14 +594,17 @@ class StudyAgent:
             system_prompt=system_prompt,
             main_prompt=main_prompt,
         )
-        llm_result = call_llm(prompt)
+        llm_result = coerce_llm_call_result(call_llm(prompt))
+        llm_payload = llm_result_payload(llm_result)
 
         parsed = self.call_tool(
             name="keeper_parse_response",
-            arguments={"llm_output": llm_result},
+            arguments={"llm_output": llm_payload},
         )
         if isinstance(parsed, dict):
-            parsed.setdefault("llm_used", llm_result is not None)
+            parsed.setdefault("llm_used", llm_payload is not None)
+            parsed.setdefault("llm_status", llm_result.status)
+            parsed.setdefault("diagnostics", self._llm_diagnostics(llm_result))
         return parsed
 
     def _wrap_result(self, name: str, result: Dict[str, Any], warnings: List[str]) -> Dict[str, Any]:
