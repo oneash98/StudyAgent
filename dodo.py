@@ -24,8 +24,12 @@ DEFAULT_ENV = {
     "LLM_LOG_JSON": os.getenv("LLM_LOG_JSON", "0"),
     "LLM_DRY_RUN": os.getenv("LLM_DRY_RUN", "0"),
     "LLM_USE_RESPONSES": os.getenv("LLM_USE_RESPONSES", "0"),
-    "LLM_CANDIDATE_LIMIT": os.getenv("LLM_CANDIDATE_LIMIT", "10"),
-    "ACP_TIMEOUT": os.getenv("ACP_TIMEOUT", "180"),
+    "LLM_CANDIDATE_LIMIT": os.getenv("LLM_CANDIDATE_LIMIT", "5"),
+    "LLM_RECOMMENDATION_MAX_RESULTS": os.getenv("LLM_RECOMMENDATION_MAX_RESULTS", "3"),
+    "LLM_RECOMMENDATION_TOP_K": os.getenv("LLM_RECOMMENDATION_TOP_K", "20"),
+    "EMBED_TIMEOUT": os.getenv("EMBED_TIMEOUT", "120"),
+    "STUDY_AGENT_MCP_TIMEOUT": os.getenv("STUDY_AGENT_MCP_TIMEOUT", "240"),
+    "ACP_TIMEOUT": os.getenv("ACP_TIMEOUT", "360"),
     "STUDY_AGENT_HOST": os.getenv("STUDY_AGENT_HOST", "127.0.0.1"),
     "STUDY_AGENT_PORT": os.getenv("STUDY_AGENT_PORT", "8765"),
 }
@@ -135,6 +139,63 @@ def task_run_all():
     return {
         "actions": None,
         "task_dep": ["test_all","smoke_phenotype_recommend_flow", "smoke_phenotype_intent_split_flow", "smoke_phenotype_recommendation_advice_flow", "smoke_phenotype_improvements_flow", "smoke_concept_sets_review_flow", "smoke_cohort_critique_flow"],
+    }
+
+
+def task_calibrate_timeouts():
+    def _run_calibration() -> None:
+        env = os.environ.copy()
+        if not env.get("LLM_API_KEY"):
+            print("Missing LLM_API_KEY in environment. Set it before running this task.")
+            return
+        for key, value in DEFAULT_ENV.items():
+            env.setdefault(key, value)
+        if not env.get("STUDY_AGENT_MCP_URL"):
+            env.setdefault("STUDY_AGENT_MCP_COMMAND", "study-agent-mcp")
+            env.setdefault("STUDY_AGENT_MCP_ARGS", "")
+        env.setdefault("LLM_LOG", "1")
+        env.setdefault("LLM_LOG_PROMPT", "0")
+        env.setdefault("LLM_LOG_RESPONSE", "0")
+        env.setdefault("STUDY_AGENT_DEBUG", "1")
+        env.setdefault("EMBED_LOG", "1")
+        env.setdefault("TIMEOUT_CALIBRATION_RUNS", "3")
+        env.setdefault("TIMEOUT_CALIBRATION_CANDIDATE_LIMITS", "3,5,8")
+        env.setdefault("TIMEOUT_CALIBRATION_ENV_PATH", "/tmp/study_agent_timeout_recommendations.env")
+        env.setdefault("TIMEOUT_CALIBRATION_JSON_PATH", "/tmp/study_agent_timeout_recommendations.json")
+
+        acp_stdout = env.get("ACP_STDOUT", "/tmp/study_agent_acp_stdout.log")
+        acp_stderr = env.get("ACP_STDERR", "/tmp/study_agent_acp_stderr.log")
+        mcp_proc = _start_mcp_http_if_needed(env)
+        print("Starting ACP for timeout calibration...")
+        with open(acp_stdout, "w", encoding="utf-8") as out, open(acp_stderr, "w", encoding="utf-8") as err:
+            acp_proc = subprocess.Popen(["study-agent-acp"], env=env, stdout=out, stderr=err)
+        try:
+            print("Waiting for ACP health endpoint...")
+            require_mcp = bool(env.get("STUDY_AGENT_MCP_URL") or env.get("STUDY_AGENT_MCP_COMMAND"))
+            _wait_for_acp("http://127.0.0.1:8765/health", timeout_s=30, require_mcp=require_mcp)
+            print("Running timeout calibration...")
+            subprocess.run(["python", "scripts/calibrate_timeouts.py"], check=True, env=env)
+            print(f"ACP logs: {acp_stdout} {acp_stderr}")
+            print(f"Recommended env: {env['TIMEOUT_CALIBRATION_ENV_PATH']}")
+            print(f"Calibration details: {env['TIMEOUT_CALIBRATION_JSON_PATH']}")
+        finally:
+            print("Stopping ACP...")
+            acp_proc.terminate()
+            try:
+                acp_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                acp_proc.kill()
+            if mcp_proc is not None:
+                print("Stopping MCP...")
+                mcp_proc.terminate()
+                try:
+                    mcp_proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    mcp_proc.kill()
+
+    return {
+        "actions": [_run_calibration],
+        "verbosity": 2,
     }
 
 

@@ -6,6 +6,7 @@ import math
 import os
 import pickle
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -59,7 +60,14 @@ class EmbeddingClient:
     url: str
     model: str
     api_key: Optional[str] = None
-    timeout: int = 30
+    timeout: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if self.timeout is None:
+            self.timeout = int(os.getenv("EMBED_TIMEOUT", "120"))
+
+    def _debug_enabled(self) -> bool:
+        return os.getenv("STUDY_AGENT_DEBUG", "0") == "1" or os.getenv("EMBED_LOG", "0") == "1"
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
         payload = json.dumps({"model": self.model, "input": texts}).encode("utf-8")
@@ -67,19 +75,33 @@ class EmbeddingClient:
         request.add_header("Content-Type", "application/json")
         if self.api_key:
             request.add_header("Authorization", f"Bearer {self.api_key}")
+        start = time.time()
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Embedding request failed: {exc}") from exc
-        data = json.loads(raw)
+        duration = time.time() - start
+        if self._debug_enabled():
+            print(
+                f"EMBED DEBUG > url={self.url} model={self.model} timeout={self.timeout} "
+                f"texts={len(texts)} seconds={duration:.2f}"
+            )
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Embedding response was not valid JSON: {exc}. body={raw[:400]}") from exc
         if isinstance(data.get("embeddings"), list):
             return data["embeddings"]
         if isinstance(data.get("data"), list):
             return [row.get("embedding") for row in data["data"]]
         if isinstance(data.get("embedding"), list):
             return [data["embedding"]]
-        raise RuntimeError("Embedding response missing embeddings payload.")
+        if isinstance(data, dict):
+            keys = ",".join(sorted(data.keys()))
+            preview = raw[:400]
+            raise RuntimeError(f"Embedding response missing embeddings payload. keys={keys} body={preview}")
+        raise RuntimeError(f"Embedding response malformed. body={raw[:400]}")
 
 
 class PhenotypeIndex:

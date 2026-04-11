@@ -197,6 +197,20 @@ Health check (PowerShell):
 Invoke-RestMethod -Uri http://127.0.0.1:8765/health
 ```
 
+Windows logging (redirect stdout/stderr to files):
+
+```powershell
+study-agent-mcp 1> mcp.out.log 2> mcp.err.log
+study-agent-acp 1> acp.out.log 2> acp.err.log
+```
+
+Or using `Start-Process`:
+
+```powershell
+Start-Process study-agent-mcp -RedirectStandardOutput mcp.out.log -RedirectStandardError mcp.err.log
+Start-Process study-agent-acp -RedirectStandardOutput acp.out.log -RedirectStandardError acp.err.log
+```
+
 Recommended MCP environment (use absolute paths for stability):
 
 ```bash
@@ -230,10 +244,17 @@ export LLM_MODEL="gemma3:4b"
 export LLM_DRY_RUN=0
 export LLM_USE_RESPONSES=0
 export LLM_LOG=1
+export LLM_TIMEOUT=300
+export STUDY_AGENT_MCP_TIMEOUT=240
+export ACP_TIMEOUT=360
+export EMBED_TIMEOUT=120
+export LLM_CANDIDATE_LIMIT=5
+export LLM_RECOMMENDATION_MAX_RESULTS=3
 ```
 
 `LLM_LOG=1` enables verbose LLM logging to ACP stdout (config, prompt, raw response).
 For OpenWebUI using `/api/chat/completions`, keep `LLM_USE_RESPONSES=0` (the Responses API schema is not supported and can yield empty outputs).
+Recommended timeout ladder: `ACP_TIMEOUT > LLM_TIMEOUT > STUDY_AGENT_MCP_TIMEOUT`.
 
 Then call:
 
@@ -242,6 +263,44 @@ curl -s -X POST http://127.0.0.1:8765/flows/phenotype_recommendation \
   -H 'Content-Type: application/json' \
   -d '{"study_intent":"Identify clinical risk factors for older adult patients who experience an adverse event of acute gastro-intenstinal (GI) bleeding", "top_k":20, "max_results":10,"candidate_limit":10}'
 ```
+
+Expected recommendation responses now include `llm_used`, `llm_status`, `fallback_reason`, `fallback_mode`, and `diagnostics`. If the LLM path fails to parse or validate, ACP still returns `status: ok` with an explicit machine-readable fallback reason instead of silently degrading.
+
+## Timeout calibration
+
+Use the automated calibration task to derive environment-specific starting values for `EMBED_TIMEOUT`, `STUDY_AGENT_MCP_TIMEOUT`, `LLM_TIMEOUT`, and `ACP_TIMEOUT`:
+
+```bash
+doit calibrate_timeouts
+```
+
+What it does:
+
+- starts MCP and ACP if they are not already running
+- warms up and samples `phenotype_intent_split`, `phenotype_recommendation_advice`, and `phenotype_recommendation`
+- tests multiple recommendation prompt sizes using `TIMEOUT_CALIBRATION_CANDIDATE_LIMITS` (default `3,5,8`)
+- uses ACP diagnostics plus MCP embedding debug logs to recommend timeouts with safety margins
+
+Useful overrides:
+
+```bash
+export TIMEOUT_CALIBRATION_RUNS=3
+export TIMEOUT_CALIBRATION_CANDIDATE_LIMITS=3,5,8
+export TIMEOUT_CALIBRATION_ENV_PATH=/tmp/study_agent_timeout_recommendations.env
+export TIMEOUT_CALIBRATION_JSON_PATH=/tmp/study_agent_timeout_recommendations.json
+doit calibrate_timeouts
+```
+
+Outputs:
+
+- `.env` fragment with recommended timeout values
+- JSON summary with observed p95 timings, fallback statuses, and per-run details
+
+Interpretation notes:
+
+- If the calibration run reports repeated `llm_status != ok`, fix LLM parsing/compatibility first rather than only raising timeouts.
+- If larger `candidate_limit` values sharply increase latency, prefer a smaller `LLM_CANDIDATE_LIMIT` before increasing `LLM_TIMEOUT`.
+- Treat the generated values as good starting points for that environment, not universal maxima.
 
 Phenotype intent split (target/outcome statements):
 
