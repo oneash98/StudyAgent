@@ -379,22 +379,37 @@ curl -s -X POST http://127.0.0.1:8765/flows/phenotype_validation_review \
   -d '{"disease_name":"Gastrointestinal bleeding","keeper_row":{"age":44,"gender":"Male","visitContext":"Inpatient Visit","presentation":"Gastrointestinal hemorrhage","priorDisease":"Peptic ulcer","symptoms":"","comorbidities":"","priorDrugs":"celecoxib","priorTreatmentProcedures":"","diagnosticProcedures":"","measurements":"","alternativeDiagnosis":"","afterDisease":"","afterDrugs":"Naproxen","afterTreatmentProcedures":""}}'
 ```
 
-Keeper concept sets generate:
+## Keeper concept sets generate
 
-```For the ACP/MCP using Hecate
+This flow is now usable end to end.
 
+Supported provider patterns:
+- Hecate-backed vocabulary search plus Hecate Phoebe expansion
+- air-gapped `generic_search_api` vocabulary search plus DB-backed concept enrichment and Phoebe recommendations
+
+Important:
+- restart ACP and MCP after code changes or environment changes affecting provider selection
+- `keeper_concept_sets_generate` does not use patient-level data
+- `keeper_profiles_generate` is still planned and not implemented yet
+
+### Hecate-backed configuration
+
+```bash
 export VOCAB_SEARCH_PROVIDER=hecate_api
 export VOCAB_SEARCH_URL="https://hecate.pantheon-hds.com/api/search_standard"
 export PHOEBE_PROVIDER=hecate_api
 export PHOEBE_URL_TEMPLATE="https://hecate.pantheon-hds.com/api/concepts/{concept_id}/phoebe"
 ```
 
-Then...
+Run the flow:
+
 ```bash
 curl -s -X POST http://127.0.0.1:8765/flows/keeper_concept_sets_generate \
   -H 'Content-Type: application/json' \
-  -d '{"phenotype":"Gastrointestinal bleeding","domain_keys":["doi","alternativeDiagnosis","symptoms"],"candidate_limit":10,"include_diagnostics":true}'
+  -d '{"phenotype":"Gastrointestinal bleeding","domain_keys":["doi","alternativeDiagnosis","symptoms"],"candidate_limit":10,"include_diagnostics":true}' | python -m json.tool
 ```
+
+Direct MCP tool checks through ACP:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8765/tools/call \
@@ -406,7 +421,7 @@ curl -s -X POST http://127.0.0.1:8765/tools/call \
       "domain_key": "doi",
       "target": "Disease of interest"
     }
-  }'
+  }' | python -m json.tool
 ```
 
 ```bash
@@ -421,11 +436,13 @@ curl -s -X POST http://127.0.0.1:8765/tools/call \
       "limit": 5,
       "provider": "hecate_api"
     }
-  }'
+  }' | python -m json.tool
 ```
 
 ```bash
-curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+curl -s -X POST http://127.0.0.1:8765/tools/call \
+  -H 'Content-Type: application/json' \
+  -d '{
     "name": "phoebe_related_concepts",
     "arguments": {
       "concept_ids": [192671],
@@ -435,57 +452,108 @@ curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application
   }' | python -m json.tool
 ```
 
-```For the ACP/MCP using a local embedding API and Pheobe by database connection
+### Air-gapped search plus DB-backed Phoebe/metadata
 
+Use this when the embedding service is local and returns sparse concept rows that need OMOP metadata enrichment from the vocabulary database.
+
+```bash
 export VOCAB_SEARCH_PROVIDER=generic_search_api
-export VOCAB_SEARCH_URL="VOCAB_SEARCH_URL="http://127.0.0.1:30080/search"
-export PHOEBE_PROVIDER=
-export PHOEBE_URL_TEMPLATE=
+export VOCAB_SEARCH_URL="http://127.0.0.1:30080/search"
+export VOCAB_SEARCH_QUERY_PREFIX="Instruction: retrieve the concepts most related to the query. Query: "
+export VOCAB_METADATA_PROVIDER=db
+export PHOEBE_PROVIDER=db
+export VOCAB_DB_ENGINE='<sqlalchemy engine url>'
+export VOCAB_DATABASE_SCHEMA=vocabulary
+export PHOEBE_DB_TABLE=concept_recommended
+export VOCAB_CONCEPT_TABLE=concept
+```
 
-curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+Test sparse search:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call \
+  -H 'Content-Type: application/json' \
+  -d '{
     "name": "vocab_search_standard",
     "arguments": {
-      "query": "Instruction: retrieve the concepts most related to the query. Query: intracranial hemmhorage",
+      "query": "intracranial hemorrhage",
       "domains": ["Condition"],
       "concept_classes": [],
       "limit": 5,
       "provider": "generic_search_api"
     }
-  }'
+  }' | python -m json.tool
+```
 
+Test DB-backed Phoebe:
 
-------------
-
-PHOEBE_PROVIDER=db
-# URL encoded pword
-VOCAB_DB_ENGINE='postgresql://rdb20:T7y7ZWdL%21%40@localhost:6433/cem' 
-VOCAB_DATABASE_SCHEMA=vocabulary
-PHOEBE_DB_TABLE=concept_recommended
-VOCAB_CONCEPT_TABLE=concept
-
-curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call \
+  -H 'Content-Type: application/json' \
+  -d '{
     "name": "phoebe_related_concepts",
     "arguments": {
       "concept_ids": [192671],
       "relationship_ids": ["Patient context"],
       "provider": "db"
     }
-  }'
+  }' | python -m json.tool
+```
 
+Test DB-backed enrichment/filtering for sparse rows:
 
------------
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "vocab_filter_standard_concepts",
+    "arguments": {
+      "concepts": [
+        {"conceptId": 439847, "score": 0.98}
+      ],
+      "domains": ["Condition"],
+      "concept_classes": [],
+      "provider": "db"
+    }
+  }' | python -m json.tool
+```
 
-`keeper_concept_sets_generate` using LLM Shim
-- Make sure config.yaml of LLM Shim has bedrock configured for `us.anthropic.claude-*`
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "vocab_fetch_concepts",
+    "arguments": {
+      "concept_ids": [439847],
+      "concepts": [
+        {"conceptId": 439847, "score": 0.98}
+      ],
+      "provider": "db"
+    }
+  }' | python -m json.tool
+```
 
-- In ACP and MCP shells (note the 'us' before the model name which amazon needs for its load balancing)
-export LLM_MODEL=bedrock:us.anthropic.claude-opus-4-5-20251101-v1:0 
-
+Run the flow with the air-gapped provider path:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8765/flows/keeper_concept_sets_generate \
   -H 'Content-Type: application/json' \
-  -d '{"phenotype":"Gastrointestinal bleeding","domain_keys":["doi","alternativeDiagnosis","symptoms"],"candidate_limit":10,"include_diagnostics":true}'
+  -d '{"phenotype":"Intracranial hemorrhage","domain_keys":["doi"],"candidate_limit":5,"vocab_search_provider":"generic_search_api","phoebe_provider":"db","include_diagnostics":true}' | python -m json.tool
+```
+
+### LLM shim example
+
+Make sure the LLM shim `config.yaml` is configured for the target provider/model.
+Example Bedrock naming may require the `us.` prefix.
+
+```bash
+export LLM_MODEL=bedrock:us.anthropic.claude-opus-4-5-20251101-v1:0
+```
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/flows/keeper_concept_sets_generate \
+  -H 'Content-Type: application/json' \
+  -d '{"phenotype":"Gastrointestinal bleeding","domain_keys":["doi","alternativeDiagnosis","symptoms"],"candidate_limit":10,"include_diagnostics":true}' | python -m json.tool
 ```
 
 
@@ -567,4 +635,7 @@ doit list_services
 
 ## Stop server
 
-Press `Ctrl+C` in the terminal running `study-agent-acp` to stop the server.
+Press `Ctrl+C` in the terminal running `study-agent-acp` to stop ACP.
+
+If MCP is running as a separate HTTP process, stop ACP first, then stop MCP.
+If ACP started MCP via `STUDY_AGENT_MCP_COMMAND`, stopping ACP should also close the managed MCP subprocess.

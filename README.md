@@ -103,6 +103,10 @@ For details on PHI/PII handling, see `docs/PHENOTYPE_VALIDATION_REVIEW.md`.
 4. ACP calls the LLM again to filter candidates, then returns normalized concept sets plus diagnostics.
 
 This flow does not use patient-level data.
+It currently supports:
+- Hecate-backed vocabulary search and Phoebe expansion
+- air-gapped `generic_search_api` vocabulary search
+- DB-backed concept enrichment/filtering and DB-backed Phoebe recommendations via `concept_recommended`
 
 ### `phenotype_recommendation_advice` flow (ACP + MCP + LLM)
 
@@ -198,6 +202,10 @@ curl -s -X POST http://127.0.0.1:8765/flows/keeper_concept_sets_generate \
   -H 'Content-Type: application/json' \
   -d '{"phenotype":"Gastrointestinal bleeding","domain_keys":["doi","alternativeDiagnosis","symptoms"],"candidate_limit":10,"include_diagnostics":true}'
 ```
+
+Provider-specific examples for Hecate-backed and air-gapped setups are in [docs/TESTING.md](/ai-agent/HadesProject/OHDSI-Study-Agent/docs/TESTING.md). If you change provider-related environment variables or update MCP/ACP code, restart both processes before retesting.
+
+For provider-specific testing notes and MCP tool examples, see [docs/TESTING.md](/ai-agent/HadesProject/OHDSI-Study-Agent/docs/TESTING.md).
 
 ### Docker quickstart
 

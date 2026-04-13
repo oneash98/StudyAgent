@@ -646,15 +646,15 @@ def main(host: str = "127.0.0.1", port: int = 8765) -> None:
             if shutdown_once["done"]:
                 return
             shutdown_once["done"] = True
-        if mcp_client is not None:
+        # HTTPServer.shutdown() must run from a different thread than serve_forever().
+        # We defer MCP cleanup to _serve() so signal handling stays responsive.
+        def _shutdown_server() -> None:
             try:
-                mcp_client.close()
+                server.shutdown()
             except Exception:
                 pass
-        try:
-            server.shutdown()
-        except Exception:
-            pass
+
+        threading.Thread(target=_shutdown_server, name="acp-shutdown", daemon=True).start()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
