@@ -84,6 +84,58 @@ services:
       - PHI/PII fail-closed sanitation (HIPAA 18)
       - output label constrained to yes/no/unknown
 
+  keeper_concept_sets_generate:
+    endpoint: /flows/keeper_concept_sets_generate
+    mcp_tools:
+      - keeper_concept_set_bundle
+      - vocab_search_standard
+      - vocab_filter_standard_concepts
+      - vocab_remove_descendants
+      - phoebe_related_concepts
+      - vocab_add_nonchildren
+      - vocab_fetch_concepts
+    input:
+      - phenotype
+      - domain_keys
+      - vocab_search_provider
+      - phoebe_provider
+      - candidate_limit
+      - min_record_count
+    output:
+      - concept_sets
+      - domains
+      - diagnostics
+    validation:
+      - no patient-level data permitted in prompts
+      - concepts normalized against OMOP vocabulary
+
+  keeper_profiles_generate:
+    endpoint: /flows/keeper_profiles_generate
+    mcp_tools:
+      - keeper_profile_extract
+      - keeper_profile_to_rows
+      - keeper_sanitize_profile_row
+    input:
+      - cohort_database_schema
+      - cohort_table
+      - cohort_definition_id
+      - cdm_database_schema
+      - sample_size
+      - person_ids
+      - keeper_concept_sets
+      - use_descendants
+      - remove_pii
+    output:
+      - rows
+      - row_count
+      - sample_size_requested
+      - sample_size_returned
+      - diagnostics
+    validation:
+      - deterministic only, no LLM callouts
+      - PHI/PII retained only inside local extraction boundary
+      - downstream LLM use requires explicit sanitization gate
+
   phenotype_recommendation_advice:
     endpoint: /flows/phenotype_recommendation_advice
     mcp_tools:

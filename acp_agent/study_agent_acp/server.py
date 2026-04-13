@@ -59,6 +59,25 @@ def _warn_on_inconsistent_llm_config() -> None:
         )
 
 
+def _resolve_mcp_url_from_env() -> Optional[str]:
+    explicit = os.getenv("STUDY_AGENT_MCP_URL")
+    if explicit:
+        return explicit
+
+    transport = (os.getenv("MCP_TRANSPORT") or "").strip().lower()
+    if transport != "http":
+        return None
+
+    host = (os.getenv("MCP_HOST") or "").strip()
+    port = (os.getenv("MCP_PORT") or "").strip()
+    path = (os.getenv("MCP_PATH") or "/mcp").strip() or "/mcp"
+    if not host or not port:
+        return None
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return f"http://{host}:{port}{path}"
+
+
 def _read_json(handler: BaseHTTPRequestHandler) -> Dict[str, Any]:
     length = int(handler.headers.get("Content-Length", "0"))
     if length <= 0:
@@ -160,6 +179,9 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
                         )
                     except Exception as exc:
                         payload["mcp_index"] = {"error": str(exc)}
+            else:
+                payload["mcp"] = {"ok": False, "configured": False, "error": "mcp_not_configured"}
+                payload["mcp_index"] = {"skipped": True, "reason": "mcp_not_configured"}
 
             _write_json(self, 200, payload)
             return
@@ -535,7 +557,7 @@ def main(host: str = "127.0.0.1", port: int = 8765) -> None:
     debug = os.getenv("STUDY_AGENT_DEBUG", "0") == "1"
     threaded = os.getenv("STUDY_AGENT_THREADING", "1") == "1"
     mcp_cwd = os.getenv("STUDY_AGENT_MCP_CWD") or os.getcwd()
-    mcp_url = os.getenv("STUDY_AGENT_MCP_URL")
+    mcp_url = _resolve_mcp_url_from_env()
     mcp_token = os.getenv("STUDY_AGENT_MCP_TOKEN")
     mcp_timeout = int(os.getenv("STUDY_AGENT_MCP_TIMEOUT", "240"))
     _log_startup_config()

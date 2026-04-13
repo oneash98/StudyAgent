@@ -1,0 +1,113 @@
+- name: Disease of interest
+  parameterName: doi
+  domains:
+    - Condition
+  conceptClasses: []
+  systemPromptTerms: |
+    You are a medical terminology expert and medical doctor.
+    You are provided a free-text name of a medical condition: "{phenotype}".
+    Provide one or more medical terms that are commonly used to denote that condition.
+  systemPromptRemoveNonRelevant: |
+    You are a medical terminology expert and medical doctor.
+    You are provided a Medical Condition: "{phenotype}" and a list of candidate Concepts.
+    Select only concepts whose clinical assertion guarantees the presence of the target condition.
+
+- name: Alternative diagnoses
+  parameterName: alternativeDiagnosis
+  domains:
+    - Condition
+  conceptClasses: []
+  systemPromptTerms: |
+    You are a medical terminology expert and medical doctor.
+    You are provided a free-text name of a medical condition: "{phenotype}".
+    Generate a list of differential diagnoses with distinct pathology and overlapping presentation.
+  systemPromptRemoveNonRelevant: |
+    You are a medical terminology expert and medical doctor.
+    You are provided a Medical Condition: "{phenotype}" and a list of candidate Concepts.
+    Keep only valid differential diagnoses with distinct etiology and overlapping presentation.
+
+- name: Symptoms
+  parameterName: symptoms
+  domains:
+    - Condition
+    - Observation
+  conceptClasses:
+    - Clinical Finding
+  systemPromptTerms: |
+    You are a medical terminology expert and medical doctor.
+    You are provided a list of Medical Conditions related to "{phenotype}".
+    Provide medical terms that describe symptoms of one or more of those conditions.
+  systemPromptRemoveNonRelevant: |
+    You are a clinical coding expert.
+    You are provided Medical Conditions related to "{phenotype}" and a list of candidate Concepts.
+    Keep only concepts that represent symptoms rather than diagnoses or treatments.
+
+- name: Drugs
+  parameterName: drugs
+  domains:
+    - Drug
+  conceptClasses: []
+  systemPromptTerms: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}".
+    Provide generic drug names and drug classes used as pharmaceutical treatments.
+  systemPromptRemoveNonRelevant: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}" and a list of candidate Concepts.
+    Keep only concepts used as pharmaceutical treatments or prophylaxis.
+
+- name: Diagnostic procedures
+  parameterName: diagnosticProcedures
+  domains:
+    - Procedure
+  conceptClasses: []
+  systemPromptTerms: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}".
+    Provide procedure names that describe diagnostic procedures for those conditions.
+  systemPromptRemoveNonRelevant: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}" and a list of candidate Concepts.
+    Keep only procedures used to diagnose one or more of those conditions.
+
+- name: Measurements
+  parameterName: measurements
+  domains:
+    - Measurement
+  conceptClasses: []
+  systemPromptTerms: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}".
+    Provide laboratory or measurement terms used to diagnose or assess those conditions.
+  systemPromptRemoveNonRelevant: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}" and a list of candidate Concepts.
+    Keep only measurements or laboratory tests used in diagnosis or assessment.
+
+- name: Treatment procedures
+  parameterName: treatmentProcedures
+  domains:
+    - Procedure
+  conceptClasses: []
+  systemPromptTerms: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}".
+    Provide procedure names that describe treatment procedures for those conditions.
+  systemPromptRemoveNonRelevant: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}" and a list of candidate Concepts.
+    Keep only procedures used to treat, manage, or prevent complications of those conditions.
+
+- name: Complications
+  parameterName: complications
+  domains:
+    - Condition
+  conceptClasses: []
+  systemPromptTerms: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}".
+    Provide terms for complications that can occur because of those conditions.
+  systemPromptRemoveNonRelevant: |
+    You are a medical terminology expert and medical doctor.
+    You are provided Medical Conditions related to "{phenotype}" and a list of candidate Concepts.
+    Keep only concepts that represent downstream complications of those conditions.

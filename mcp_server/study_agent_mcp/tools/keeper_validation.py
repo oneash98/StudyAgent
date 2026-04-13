@@ -71,6 +71,10 @@ def _load_json(path: str) -> Dict[str, Any]:
         return json.load(handle)
 
 
+def _render_template(template: str, values: Dict[str, Any]) -> str:
+    return template.format_map({key: str(value) for key, value in values.items()})
+
+
 def _bucket_age(age: Any) -> str:
     try:
         age_val = float(age)
@@ -138,19 +142,8 @@ def _sanitize_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return sanitized
 
 
-def _build_prompt(disease_name: str, sanitized: Dict[str, Any]) -> str:
-    lines = [
-        f"Demographics and details about the visit: {sanitized['gender']}, {sanitized['age_bucket']} yo; Visit: {sanitized['visit_context']}",
-        f"Diagnoses recorded on the day of the visit: {sanitized['presentation']}",
-        f"Diagnoses recorded prior to the visit: {sanitized['prior_disease']}; Symptoms: {sanitized['symptoms']}; Comorbidities: {sanitized['comorbidities']}",
-        f"Treatments recorded prior to the visit: {sanitized['prior_drugs']}; {sanitized['prior_treatments']}",
-        f"Diagnostic procedures recorded proximal to the visit: {sanitized['diagnostic_procedures']}",
-        f"Laboratory tests recorded proximal to the visit: {sanitized['measurements']}",
-        f"Alternative diagnoses recorded proximal to the visit: {sanitized['alternative_diagnosis']}",
-        f"Diagnoses recorded after the visit: {sanitized['after_disease']}",
-        f"Treatments recorded during or after the visit: {sanitized['after_drugs']}; {sanitized['after_treatments']}",
-    ]
-    return "\n\n".join(lines)
+def _build_prompt(template: str, sanitized: Dict[str, Any]) -> str:
+    return _render_template(template, sanitized)
 
 
 def _parse_label(text: str) -> str:
@@ -174,11 +167,15 @@ def _load_bundle() -> Dict[str, Any]:
     overview = _load_text(os.path.join(base, "overview_keeper.md"))
     spec = _load_text(os.path.join(base, "spec_phenotype_validation_review.md"))
     schema = _load_json(os.path.join(base, "output_schema_phenotype_validation_review.json"))
+    system_prompt_template = _load_text(os.path.join(base, "system_prompt_phenotype_validation_review.md"))
+    patient_summary_template = _load_text(os.path.join(base, "template_keeper_patient_summary.md"))
     payload = {
         "task": "phenotype_validation_review",
         "overview": overview,
         "spec": spec,
         "output_schema": schema,
+        "system_prompt_template": system_prompt_template,
+        "patient_summary_template": patient_summary_template,
     }
     _CACHE["phenotype_validation_review"] = payload
     return payload
@@ -190,12 +187,9 @@ def register(mcp: object) -> None:
         payload = _load_bundle()
         payload = dict(payload)
         payload["disease_name"] = disease_name
-        payload["system_prompt"] = (
-            "Act as a medical doctor reviewing a patient's healthcare data captured during routine clinical care. "
-            f"Write a brief clinical narrative and then determine whether the patient had {disease_name}. "
-            "Remember that a diagnosis can be recorded as part of testing, and may not confirm disease. "
-            "If evidence is insufficient, respond with label \"unknown\". "
-            "Return JSON with label and rationale only."
+        payload["system_prompt"] = _render_template(
+            payload.get("system_prompt_template", ""),
+            {"disease_name": disease_name},
         )
         return with_meta(payload, "keeper_prompt_bundle")
 
@@ -218,7 +212,8 @@ def register(mcp: object) -> None:
 
     @mcp.tool(name="keeper_build_prompt")
     def keeper_build_prompt_tool(disease_name: str, sanitized_row: Dict[str, Any]) -> Dict[str, Any]:
-        prompt = _build_prompt(disease_name, sanitized_row)
+        bundle = _load_bundle()
+        prompt = _build_prompt(bundle.get("patient_summary_template", ""), sanitized_row)
         return with_meta({"prompt": prompt}, "keeper_build_prompt")
 
     @mcp.tool(name="keeper_parse_response")

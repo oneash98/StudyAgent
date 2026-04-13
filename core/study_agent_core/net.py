@@ -10,8 +10,12 @@ def running_in_container() -> bool:
     return os.path.exists("/.dockerenv")
 
 
+def _host_rewrite_enabled() -> bool:
+    return os.getenv("STUDY_AGENT_REWRITE_CONTAINER_HOSTS", "1") == "1"
+
+
 def rewrite_container_host_url(url: str, gateway_host: str | None = None) -> str:
-    if not url or not running_in_container():
+    if not url or not running_in_container() or not _host_rewrite_enabled():
         return url
 
     parts = urlsplit(url)

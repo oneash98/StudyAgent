@@ -53,6 +53,60 @@ def test_mcp_health_check_success():
     assert client.health_check() == {"ok": True}
 
 
+@pytest.mark.acp
+def test_resolve_mcp_url_from_env(monkeypatch):
+    monkeypatch.delenv("STUDY_AGENT_MCP_URL", raising=False)
+    monkeypatch.setenv("MCP_TRANSPORT", "http")
+    monkeypatch.setenv("MCP_HOST", "127.0.0.1")
+    monkeypatch.setenv("MCP_PORT", "8790")
+    monkeypatch.setenv("MCP_PATH", "/mcp")
+
+    assert acp_server._resolve_mcp_url_from_env() == "http://127.0.0.1:8790/mcp"
+
+
+@pytest.mark.acp
+def test_resolve_mcp_url_from_env_prefers_explicit(monkeypatch):
+    monkeypatch.setenv("STUDY_AGENT_MCP_URL", "http://example.test:9999/custom")
+    monkeypatch.setenv("MCP_TRANSPORT", "http")
+    monkeypatch.setenv("MCP_HOST", "127.0.0.1")
+    monkeypatch.setenv("MCP_PORT", "8790")
+    monkeypatch.setenv("MCP_PATH", "/mcp")
+
+    assert acp_server._resolve_mcp_url_from_env() == "http://example.test:9999/custom"
+
+
+@pytest.mark.acp
+def test_health_reports_mcp_not_configured():
+    handler = acp_server.ACPRequestHandler.__new__(acp_server.ACPRequestHandler)
+    handler.path = "/health"
+    handler.headers = {}
+    handler.debug = False
+    handler.agent = StudyAgent(mcp_client=None)
+    handler.mcp_client = None
+    handler.wfile = None
+    handler.rfile = None
+
+    captured = {}
+
+    def fake_write_json(_handler, status, payload):
+        captured["status"] = status
+        captured["payload"] = payload
+
+    original = acp_server._write_json
+    acp_server._write_json = fake_write_json
+    try:
+        handler.do_GET()
+    finally:
+        acp_server._write_json = original
+
+    assert captured["status"] == 200
+    assert captured["payload"] == {
+        "status": "ok",
+        "mcp": {"ok": False, "configured": False, "error": "mcp_not_configured"},
+        "mcp_index": {"skipped": True, "reason": "mcp_not_configured"},
+    }
+
+
 class StubMCPClient:
     def __init__(self) -> None:
         self.calls = []

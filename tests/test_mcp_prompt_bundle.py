@@ -74,3 +74,43 @@ def test_keeper_prompt_bundle_schema() -> None:
     fn = mcp.tools["keeper_prompt_bundle"]
     payload = fn("Gastrointestinal bleeding")
     assert payload["output_schema"]["title"] == "phenotype_validation_review_output"
+    assert payload["system_prompt"] == (
+        "Act as a medical doctor reviewing a patient's healthcare data captured during routine clinical care.\n"
+        "Write a brief clinical narrative and then determine whether the patient had Gastrointestinal bleeding.\n"
+        "Remember that a diagnosis can be recorded as part of testing, and may not confirm disease.\n"
+        "If evidence is insufficient, respond with label \"unknown\".\n"
+        "Return JSON with label and rationale only."
+    )
+
+
+@pytest.mark.mcp
+def test_keeper_build_prompt_uses_template() -> None:
+    from study_agent_mcp.tools import keeper_validation
+
+    mcp = DummyMCP()
+    keeper_validation.register(mcp)
+    fn = mcp.tools["keeper_build_prompt"]
+    payload = fn(
+        "Gastrointestinal bleeding",
+        {
+            "gender": "Male",
+            "age_bucket": "40-44",
+            "visit_context": "Inpatient Visit",
+            "presentation": "Gastrointestinal hemorrhage",
+            "prior_disease": "Peptic ulcer",
+            "symptoms": "None",
+            "comorbidities": "None",
+            "prior_drugs": "celecoxib",
+            "prior_treatments": "None",
+            "diagnostic_procedures": "EGD",
+            "measurements": "Hemoglobin low",
+            "alternative_diagnosis": "None",
+            "after_disease": "None",
+            "after_drugs": "Naproxen",
+            "after_treatments": "None",
+            "death": "None",
+        },
+    )
+    assert "Male, 40-44 yo; Visit: Inpatient Visit" in payload["prompt"]
+    assert "Diagnoses recorded on the day of the visit: Gastrointestinal hemorrhage" in payload["prompt"]
+    assert "Treatments recorded during or after the visit: Naproxen; None" in payload["prompt"]

@@ -1,0 +1,14 @@
+{
+  "title": "keeper_filter_concepts_output",
+  "type": "object",
+  "properties": {
+    "conceptId": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    }
+  },
+  "required": ["conceptId"],
+  "additionalProperties": false
+}

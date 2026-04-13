@@ -1,0 +1,14 @@
+{
+  "title": "keeper_generate_terms_output",
+  "type": "object",
+  "properties": {
+    "terms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": ["terms"],
+  "additionalProperties": false
+}

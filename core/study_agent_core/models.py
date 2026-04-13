@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -40,7 +40,138 @@ class PhenotypeIntentSplitInput(BaseModel):
 
 class PhenotypeValidationReviewInput(BaseModel):
     disease_name: str = ""
+    keeper_row: Dict[str, Any] = Field(default_factory=dict)
     llm_result: Optional[Dict[str, Any]] = None
+
+
+KeeperConceptSetDomainKey = Literal[
+    "doi",
+    "alternativeDiagnosis",
+    "symptoms",
+    "drugs",
+    "diagnosticProcedures",
+    "measurements",
+    "treatmentProcedures",
+    "complications",
+]
+
+KeeperConceptTarget = Literal["Disease of interest", "Alternative diagnoses", "Both", "Other"]
+
+
+class KeeperConceptSetItem(BaseModel):
+    conceptId: int
+    conceptName: str
+    vocabularyId: str
+    conceptSetName: KeeperConceptSetDomainKey
+    target: KeeperConceptTarget
+    domainId: str = ""
+    conceptClassId: str = ""
+    standardConcept: str = ""
+    recordCount: Optional[int] = None
+    score: Optional[float] = None
+    sourceTerm: str = ""
+    sourceStage: str = ""
+
+
+class KeeperConceptSetStepDiagnostics(BaseModel):
+    step: str
+    count: int = 0
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class KeeperConceptSetDomainResult(BaseModel):
+    domain_key: KeeperConceptSetDomainKey
+    target: KeeperConceptTarget
+    terms: List[str] = Field(default_factory=list)
+    concepts: List[KeeperConceptSetItem] = Field(default_factory=list)
+    diagnostics: List[KeeperConceptSetStepDiagnostics] = Field(default_factory=list)
+
+
+class KeeperConceptSetsGenerateInput(BaseModel):
+    phenotype: str
+    domain_keys: List[KeeperConceptSetDomainKey] = Field(default_factory=list)
+    vocab_search_provider: str = ""
+    phoebe_provider: str = ""
+    candidate_limit: int = 50
+    min_record_count: int = 0
+    include_diagnostics: bool = True
+
+
+class KeeperConceptSetsGenerateOutput(BaseModel):
+    phenotype: str
+    concept_sets: List[KeeperConceptSetItem] = Field(default_factory=list)
+    domains: List[KeeperConceptSetDomainResult] = Field(default_factory=list)
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class KeeperProfileRow(BaseModel):
+    phenotype: str = ""
+    generatedId: str = ""
+    age: Any = ""
+    sex: str = ""
+    gender: str = ""
+    observationPeriod: str = ""
+    race: str = ""
+    ethnicity: str = ""
+    presentation: str = ""
+    visits: str = ""
+    visitContext: str = ""
+    symptoms: str = ""
+    priorDisease: str = ""
+    postDisease: str = ""
+    afterDisease: str = ""
+    priorDrugs: str = ""
+    postDrugs: str = ""
+    afterDrugs: str = ""
+    priorTreatmentProcedures: str = ""
+    postTreatmentProcedures: str = ""
+    afterTreatmentProcedures: str = ""
+    alternativeDiagnoses: str = ""
+    alternativeDiagnosis: str = ""
+    diagnosticProcedures: str = ""
+    measurements: str = ""
+    death: str = ""
+    cohortPrevalence: Optional[float] = None
+
+
+class KeeperProfilesGenerateInput(BaseModel):
+    cohort_database_schema: str
+    cohort_table: str
+    cohort_definition_id: int
+    cdm_database_schema: str = ""
+    sample_size: int = 20
+    person_ids: List[str] = Field(default_factory=list)
+    keeper_concept_sets: List[KeeperConceptSetItem] = Field(default_factory=list)
+    phenotype_name: str = ""
+    use_descendants: bool = True
+    remove_pii: bool = True
+
+
+class KeeperProfilesGenerateOutput(BaseModel):
+    phenotype_name: str = ""
+    rows: List[KeeperProfileRow] = Field(default_factory=list)
+    row_count: int = 0
+    sample_size_requested: int = 0
+    sample_size_returned: int = 0
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LLMAuditRecord(BaseModel):
+    flow_name: str
+    tool_name: str = ""
+    timestamp: str = ""
+    actor_id: str = ""
+    provider: str = ""
+    model: str = ""
+    endpoint: str = ""
+    egress_mode: str = ""
+    sanitization_status: str = ""
+    sanitization_version: str = ""
+    policy_decision: str = ""
+    prompt_sha256: str = ""
+    response_sha256: str = ""
+    artifact_ids: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ConceptSetDiffOutput(BaseModel):
@@ -96,3 +227,7 @@ class PhenotypeValidationReviewOutput(BaseModel):
     label: str
     rationale: str
     mode: str
+
+
+class LLMAuditEnvelope(BaseModel):
+    records: List[LLMAuditRecord] = Field(default_factory=list)
