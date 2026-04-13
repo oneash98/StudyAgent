@@ -716,3 +716,66 @@ def task_smoke_phenotype_validation_review_flow():
         "actions": [_run_smoke],
         "verbosity": 2,
     }
+
+
+def task_smoke_keeper_concept_sets_generate_flow():
+    def _run_smoke() -> None:
+        env = os.environ.copy()
+        if not env.get("LLM_API_KEY"):
+            print("Missing LLM_API_KEY in environment. Set it before running this task.")
+            return
+        for key, value in DEFAULT_ENV.items():
+            env.setdefault(key, value)
+        if not env.get("STUDY_AGENT_MCP_URL"):
+            env.setdefault("STUDY_AGENT_MCP_COMMAND", "study-agent-mcp")
+            env.setdefault("STUDY_AGENT_MCP_ARGS", "")
+        env.setdefault("LLM_LOG", "1")
+
+        acp_stdout = env.get("ACP_STDOUT", "/tmp/study_agent_acp_stdout.log")
+        acp_stderr = env.get("ACP_STDERR", "/tmp/study_agent_acp_stderr.log")
+        mcp_proc = _start_mcp_http_if_needed(env)
+        print("Starting ACP...")
+        with open(acp_stdout, "w", encoding="utf-8") as out, open(acp_stderr, "w", encoding="utf-8") as err:
+            acp_proc = subprocess.Popen(["study-agent-acp"], env=env, stdout=out, stderr=err)
+        try:
+            print("Waiting for ACP health endpoint...")
+            require_mcp = bool(env.get("STUDY_AGENT_MCP_URL") or env.get("STUDY_AGENT_MCP_COMMAND"))
+            _wait_for_acp("http://127.0.0.1:8765/health", timeout_s=30, require_mcp=require_mcp)
+            print("Running keeper concept sets generate flow smoke test...")
+            payload = json.dumps(
+                {
+                    "phenotype": "Gastrointestinal bleeding",
+                    "domain_keys": ["doi", "alternativeDiagnosis", "symptoms"],
+                    "candidate_limit": 10,
+                    "include_diagnostics": True,
+                }
+            ).encode("utf-8")
+            req = urllib.request.Request(
+                "http://127.0.0.1:8765/flows/keeper_concept_sets_generate",
+                data=payload,
+                method="POST",
+            )
+            req.add_header("Content-Type", "application/json")
+            with urllib.request.urlopen(req, timeout=int(env.get("ACP_TIMEOUT", "180"))) as response:
+                body = response.read().decode("utf-8")
+                print(body)
+            print(f"ACP logs: {acp_stdout} {acp_stderr}")
+        finally:
+            print("Stopping ACP...")
+            acp_proc.terminate()
+            try:
+                acp_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                acp_proc.kill()
+            if mcp_proc is not None:
+                print("Stopping MCP...")
+                mcp_proc.terminate()
+                try:
+                    mcp_proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    mcp_proc.kill()
+
+    return {
+        "actions": [_run_smoke],
+        "verbosity": 2,
+    }

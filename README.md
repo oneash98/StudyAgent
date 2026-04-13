@@ -95,6 +95,15 @@ LLM requests never include row-level PHI/PII; only sanitized summaries are sent.
 
 For details on PHI/PII handling, see `docs/PHENOTYPE_VALIDATION_REVIEW.md`.
 
+### `keeper_concept_sets_generate` flow (ACP + MCP + LLM)
+
+1. ACP calls MCP `keeper_concept_set_bundle` to fetch domain prompts and schemas.
+2. ACP calls an OpenAI-compatible LLM API to generate seed terms per Keeper domain.
+3. ACP calls MCP vocabulary tools to search, normalize, and prune candidate concepts.
+4. ACP calls the LLM again to filter candidates, then returns normalized concept sets plus diagnostics.
+
+This flow does not use patient-level data.
+
 ### `phenotype_recommendation_advice` flow (ACP + MCP + LLM)
 
 1. ACP calls MCP `phenotype_recommendation_advice` for advisory prompt assets and schema.
@@ -181,6 +190,13 @@ study-agent-acp
 curl -s -X POST http://127.0.0.1:8765/flows/phenotype_recommendation \
   -H 'Content-Type: application/json' \
   -d '{"study_intent":"Identify clinical risk factors for older adult patients who experience an adverse event of acute gastro-intenstinal (GI) bleeding", "top_k":20, "max_results":10,"candidate_limit":10}'
+```
+
+Run `keeper_concept_sets_generate`
+```bash
+curl -s -X POST http://127.0.0.1:8765/flows/keeper_concept_sets_generate \
+  -H 'Content-Type: application/json' \
+  -d '{"phenotype":"Gastrointestinal bleeding","domain_keys":["doi","alternativeDiagnosis","symptoms"],"candidate_limit":10,"include_diagnostics":true}'
 ```
 
 ### Docker quickstart

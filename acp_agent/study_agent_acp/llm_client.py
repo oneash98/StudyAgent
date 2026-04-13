@@ -234,6 +234,37 @@ def build_keeper_prompt(
     return "\n\n".join([s for s in sections if s])
 
 
+def build_keeper_concept_set_prompt(
+    overview: str,
+    spec: str,
+    output_schema: Dict[str, Any],
+    system_prompt: str,
+    payload: Dict[str, Any],
+    max_kb: int = 10,
+) -> str:
+    strict_rules = "\n\n".join(
+        [
+            "STRICT OUTPUT RULES:",
+            spec,
+            "Return exactly ONE JSON object that matches the output schema.",
+            "Do NOT wrap output in markdown, code fences, or prose.",
+            "If uncertain, return required keys with empty arrays.",
+            f"Keep output under {max_kb} KB.",
+        ]
+    )
+    sections = [
+        overview,
+        "SYSTEM PROMPT:",
+        system_prompt,
+        "OUTPUT SCHEMA (JSON):",
+        json.dumps(output_schema, ensure_ascii=True),
+        "DYNAMIC INPUT (JSON):",
+        json.dumps(payload, ensure_ascii=True),
+        strict_rules,
+    ]
+    return "\n\n".join([s for s in sections if s])
+
+
 def _normalize_content_text(text: Optional[str]) -> str:
     normalized = str(text or "").strip()
     if not normalized:

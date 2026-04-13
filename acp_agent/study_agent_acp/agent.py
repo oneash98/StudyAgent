@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Protocol
 from study_agent_core.models import (
     CohortLintInput,
     ConceptSetDiffInput,
+    KeeperConceptSetsGenerateInput,
     PhenotypeIntentSplitInput,
     PhenotypeImprovementsInput,
     PhenotypeRecommendationAdviceInput,
@@ -21,6 +22,7 @@ from .llm_client import (
     LLMCallResult,
     build_intent_split_prompt,
     build_advice_prompt,
+    build_keeper_concept_set_prompt,
     build_improvements_prompt,
     build_keeper_prompt,
     build_lint_prompt,
@@ -66,6 +68,7 @@ class StudyAgent:
             "phenotype_recommendation_advice": PhenotypeRecommendationAdviceInput.model_json_schema(),
             "phenotype_improvements": PhenotypeImprovementsInput.model_json_schema(),
             "phenotype_intent_split": PhenotypeIntentSplitInput.model_json_schema(),
+            "keeper_concept_sets_generate": KeeperConceptSetsGenerateInput.model_json_schema(),
         }
 
     def _debug_enabled(self) -> bool:
@@ -111,6 +114,19 @@ class StudyAgent:
             "disabled": "llm_disabled",
         }
         return mapping.get(result.status, "llm_empty_result")
+
+    def _dedupe_concepts(self, concepts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        deduped: List[Dict[str, Any]] = []
+        seen: set[Any] = set()
+        for concept in concepts or []:
+            concept_id = concept.get("conceptId")
+            if concept_id in (None, ""):
+                continue
+            if concept_id in seen:
+                continue
+            seen.add(concept_id)
+            deduped.append(concept)
+        return deduped
 
     def _call_llm(self, prompt: str, required_keys: Optional[List[str]] = None) -> LLMCallResult:
         try:
@@ -606,6 +622,418 @@ class StudyAgent:
             parsed.setdefault("llm_status", llm_result.status)
             parsed.setdefault("diagnostics", self._llm_diagnostics(llm_result))
         return parsed
+
+    def run_keeper_concept_sets_generate_flow(
+        self,
+        phenotype: str,
+        domain_keys: Optional[List[str]] = None,
+        vocab_search_provider: str = "",
+        phoebe_provider: str = "",
+        candidate_limit: int = 50,
+        min_record_count: int = 0,
+        include_diagnostics: bool = True,
+    ) -> Dict[str, Any]:
+        if not phenotype:
+            return {"status": "error", "error": "missing phenotype"}
+        if self._mcp_client is None:
+            return {"status": "error", "error": "MCP client unavailable"}
+
+        bundle_result = self.call_tool(
+            name="keeper_concept_set_bundle",
+            arguments={"phenotype": phenotype},
+        )
+        bundle_full = bundle_result.get("full_result") or {}
+        if bundle_result.get("status") != "ok" or bundle_full.get("error"):
+            return {
+                "status": "error",
+                "error": "keeper_concept_set_bundle_failed",
+                "details": bundle_result,
+            }
+
+        domain_entries = bundle_full.get("domains") or []
+        if domain_keys:
+            selected = set(domain_keys)
+            domain_entries = [entry for entry in domain_entries if entry.get("parameterName") in selected]
+        if not domain_entries:
+            return {"status": "error", "error": "no_domains_selected"}
+
+        diagnostics: Dict[str, Any] = {
+            "provider_overrides": {
+                "vocab_search_provider": vocab_search_provider,
+                "phoebe_provider": phoebe_provider,
+            },
+            "domains_requested": [entry.get("parameterName") for entry in domain_entries],
+            "domain_runs": [],
+        }
+        concept_sets: List[Dict[str, Any]] = []
+        domain_outputs: List[Dict[str, Any]] = []
+        alternative_diagnosis_terms: List[str] = []
+
+        for entry in domain_entries:
+            domain_key = str(entry.get("parameterName") or "")
+            primary = self._run_keeper_concept_set_domain(
+                phenotype=phenotype,
+                domain_key=domain_key,
+                target="Disease of interest",
+                query_text=phenotype,
+                vocab_search_provider=vocab_search_provider,
+                phoebe_provider=phoebe_provider,
+                candidate_limit=candidate_limit,
+                min_record_count=min_record_count,
+            )
+            if primary.get("status") != "ok":
+                return primary
+            concept_sets.extend(primary.get("concepts", []))
+            domain_outputs.append(primary.get("domain_output", {}))
+            diagnostics["domain_runs"].append(primary.get("diagnostics", {}))
+
+            if domain_key == "alternativeDiagnosis":
+                alternative_diagnosis_terms = primary.get("terms", []) or []
+                continue
+
+            if alternative_diagnosis_terms:
+                alt_query = "\n- " + "\n- ".join(alternative_diagnosis_terms)
+                secondary = self._run_keeper_concept_set_domain(
+                    phenotype=phenotype,
+                    domain_key=domain_key,
+                    target="Alternative diagnoses",
+                    query_text=alt_query,
+                    vocab_search_provider=vocab_search_provider,
+                    phoebe_provider=phoebe_provider,
+                    candidate_limit=candidate_limit,
+                    min_record_count=min_record_count,
+                )
+                if secondary.get("status") != "ok":
+                    return secondary
+                concept_sets.extend(secondary.get("concepts", []))
+                domain_outputs.append(secondary.get("domain_output", {}))
+                diagnostics["domain_runs"].append(secondary.get("diagnostics", {}))
+
+        result: Dict[str, Any] = {
+            "status": "ok",
+            "phenotype": phenotype,
+            "concept_sets": concept_sets,
+            "domains": domain_outputs,
+            "llm_used": True,
+            "mode": "llm_mcp",
+        }
+        if include_diagnostics:
+            result["diagnostics"] = diagnostics
+        return result
+
+    def _run_keeper_concept_set_domain(
+        self,
+        phenotype: str,
+        domain_key: str,
+        target: str,
+        query_text: str,
+        vocab_search_provider: str,
+        phoebe_provider: str,
+        candidate_limit: int,
+        min_record_count: int,
+    ) -> Dict[str, Any]:
+        bundle_result = self.call_tool(
+            name="keeper_concept_set_bundle",
+            arguments={"phenotype": phenotype, "domain_key": domain_key, "target": target},
+        )
+        bundle_full = bundle_result.get("full_result") or {}
+        if bundle_result.get("status") != "ok" or bundle_full.get("error"):
+            return {
+                "status": "error",
+                "error": "keeper_concept_set_bundle_failed",
+                "details": bundle_result,
+            }
+
+        domain = bundle_full.get("domain") or {}
+        domains = domain.get("domains") or []
+        concept_classes = domain.get("conceptClasses") or []
+
+        terms_prompt = build_keeper_concept_set_prompt(
+            overview=bundle_full.get("overview", ""),
+            spec=bundle_full.get("spec_generate_terms", ""),
+            output_schema=bundle_full.get("output_schema_generate_terms", {}),
+            system_prompt=bundle_full.get("term_generation_prompt", ""),
+            payload={
+                "phenotype": phenotype,
+                "query_text": query_text,
+                "domain_key": domain_key,
+                "target": target,
+            },
+            max_kb=8,
+        )
+        terms_result = self._call_llm(terms_prompt, required_keys=["terms"])
+        if terms_result.status != "ok":
+            return {
+                "status": "error",
+                "error": "keeper_generate_terms_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "diagnostics": self._llm_diagnostics(terms_result),
+            }
+        terms_payload = llm_result_payload(terms_result) or {}
+        terms = [str(term).strip() for term in (terms_payload.get("terms") or []) if str(term).strip()]
+
+        search_candidates: List[Dict[str, Any]] = []
+        search_errors: List[Dict[str, Any]] = []
+        for term in terms:
+            search_result = self.call_tool(
+                name="vocab_search_standard",
+                arguments={
+                    "query": term,
+                    "domains": domains,
+                    "concept_classes": concept_classes,
+                    "limit": candidate_limit,
+                    "provider": vocab_search_provider,
+                },
+            )
+            search_full = search_result.get("full_result") or {}
+            if search_result.get("status") != "ok":
+                return {
+                    "status": "error",
+                    "error": "vocab_search_standard_failed",
+                    "domain_key": domain_key,
+                    "target": target,
+                    "details": search_result,
+                }
+            if search_full.get("error"):
+                search_errors.append({"term": term, "error": search_full.get("error")})
+                continue
+            for concept in search_full.get("concepts") or []:
+                enriched = dict(concept)
+                enriched.setdefault("sourceTerm", term)
+                enriched.setdefault("sourceStage", "vector_search")
+                search_candidates.append(enriched)
+
+        filtered_candidates = [
+            concept
+            for concept in search_candidates
+            if concept.get("recordCount") is None or int(concept.get("recordCount") or 0) >= min_record_count
+        ]
+        standard_result = self.call_tool(
+            name="vocab_filter_standard_concepts",
+            arguments={
+                "concepts": filtered_candidates,
+                "domains": domains,
+                "concept_classes": concept_classes,
+            },
+        )
+        standard_full = standard_result.get("full_result") or {}
+        if standard_result.get("status") != "ok" or standard_full.get("error"):
+            return {
+                "status": "error",
+                "error": "vocab_filter_standard_concepts_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "details": standard_result,
+            }
+        candidate_concepts = self._dedupe_concepts(standard_full.get("concepts") or [])
+
+        filter_prompt = build_keeper_concept_set_prompt(
+            overview=bundle_full.get("overview", ""),
+            spec=bundle_full.get("spec_filter_concepts", ""),
+            output_schema=bundle_full.get("output_schema_filter_concepts", {}),
+            system_prompt=bundle_full.get("concept_filter_prompt", ""),
+            payload={
+                "phenotype": phenotype,
+                "query_text": query_text,
+                "domain_key": domain_key,
+                "target": target,
+                "candidate_concepts": candidate_concepts,
+            },
+            max_kb=16,
+        )
+        filter_result = self._call_llm(filter_prompt, required_keys=["conceptId"])
+        if filter_result.status != "ok":
+            return {
+                "status": "error",
+                "error": "keeper_filter_concepts_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "diagnostics": self._llm_diagnostics(filter_result),
+            }
+        filter_payload = llm_result_payload(filter_result) or {}
+        selected_ids = [int(concept_id) for concept_id in (filter_payload.get("conceptId") or [])]
+
+        selected_result = self.call_tool(
+            name="vocab_fetch_concepts",
+            arguments={"concept_ids": selected_ids, "concepts": candidate_concepts},
+        )
+        selected_full = selected_result.get("full_result") or {}
+        if selected_result.get("status") != "ok" or selected_full.get("error"):
+            return {
+                "status": "error",
+                "error": "vocab_fetch_concepts_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "details": selected_result,
+            }
+        selected_concepts = self._dedupe_concepts(selected_full.get("concepts") or [])
+
+        pruned_initial = self.call_tool(
+            name="vocab_remove_descendants",
+            arguments={"concepts": selected_concepts},
+        )
+        pruned_initial_full = pruned_initial.get("full_result") or {}
+        if pruned_initial.get("status") != "ok" or pruned_initial_full.get("error"):
+            return {
+                "status": "error",
+                "error": "vocab_remove_descendants_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "details": pruned_initial,
+            }
+        concepts_after_first_prune = self._dedupe_concepts(pruned_initial_full.get("concepts") or [])
+
+        phoebe_result = self.call_tool(
+            name="phoebe_related_concepts",
+            arguments={
+                "concept_ids": [concept.get("conceptId") for concept in concepts_after_first_prune if concept.get("conceptId")],
+                "provider": phoebe_provider,
+            },
+        )
+        phoebe_full = phoebe_result.get("full_result") or {}
+        if phoebe_result.get("status") != "ok":
+            return {
+                "status": "error",
+                "error": "phoebe_related_concepts_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "details": phoebe_result,
+            }
+        related_concepts = phoebe_full.get("concepts") or []
+        if not phoebe_full.get("error"):
+            filtered_related = self.call_tool(
+                name="vocab_filter_standard_concepts",
+                arguments={
+                    "concepts": related_concepts,
+                    "domains": domains,
+                    "concept_classes": concept_classes,
+                },
+            )
+            filtered_related_full = filtered_related.get("full_result") or {}
+            if filtered_related.get("status") != "ok" or filtered_related_full.get("error"):
+                return {
+                    "status": "error",
+                    "error": "vocab_filter_standard_concepts_failed",
+                    "domain_key": domain_key,
+                    "target": target,
+                    "details": filtered_related,
+                }
+            related_concepts = self._dedupe_concepts([
+                concept
+                for concept in (filtered_related_full.get("concepts") or [])
+                if concept.get("recordCount") is None or int(concept.get("recordCount") or 0) >= min_record_count
+            ])
+        else:
+            related_concepts = []
+
+        merged_result = self.call_tool(
+            name="vocab_add_nonchildren",
+            arguments={"concepts": concepts_after_first_prune, "new_concepts": related_concepts},
+        )
+        merged_full = merged_result.get("full_result") or {}
+        if merged_result.get("status") != "ok" or merged_full.get("error"):
+            return {
+                "status": "error",
+                "error": "vocab_add_nonchildren_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "details": merged_result,
+            }
+        final_candidates = self._dedupe_concepts(merged_full.get("concepts") or [])
+
+        second_filter_prompt = build_keeper_concept_set_prompt(
+            overview=bundle_full.get("overview", ""),
+            spec=bundle_full.get("spec_filter_concepts", ""),
+            output_schema=bundle_full.get("output_schema_filter_concepts", {}),
+            system_prompt=bundle_full.get("concept_filter_prompt", ""),
+            payload={
+                "phenotype": phenotype,
+                "query_text": query_text,
+                "domain_key": domain_key,
+                "target": target,
+                "candidate_concepts": final_candidates,
+                "stage": "post_phoebe_filter",
+            },
+            max_kb=16,
+        )
+        second_filter_result = self._call_llm(second_filter_prompt, required_keys=["conceptId"])
+        if second_filter_result.status != "ok":
+            return {
+                "status": "error",
+                "error": "keeper_filter_concepts_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "diagnostics": self._llm_diagnostics(second_filter_result),
+            }
+        second_filter_payload = llm_result_payload(second_filter_result) or {}
+        final_ids = [int(concept_id) for concept_id in (second_filter_payload.get("conceptId") or [])]
+
+        final_fetch = self.call_tool(
+            name="vocab_fetch_concepts",
+            arguments={"concept_ids": final_ids, "concepts": final_candidates},
+        )
+        final_fetch_full = final_fetch.get("full_result") or {}
+        if final_fetch.get("status") != "ok" or final_fetch_full.get("error"):
+            return {
+                "status": "error",
+                "error": "vocab_fetch_concepts_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "details": final_fetch,
+            }
+        final_pruned = self.call_tool(
+            name="vocab_remove_descendants",
+            arguments={"concepts": final_fetch_full.get("concepts") or []},
+        )
+        final_pruned_full = final_pruned.get("full_result") or {}
+        if final_pruned.get("status") != "ok" or final_pruned_full.get("error"):
+            return {
+                "status": "error",
+                "error": "vocab_remove_descendants_failed",
+                "domain_key": domain_key,
+                "target": target,
+                "details": final_pruned,
+            }
+        final_concepts = []
+        for concept in self._dedupe_concepts(final_pruned_full.get("concepts") or []):
+            enriched = dict(concept)
+            enriched["conceptSetName"] = domain_key
+            enriched["target"] = target
+            final_concepts.append(enriched)
+
+        diagnostics = {
+            "domain_key": domain_key,
+            "target": target,
+            "llm_generate_terms": self._llm_diagnostics(terms_result),
+            "llm_filter_initial": self._llm_diagnostics(filter_result),
+            "llm_filter_final": self._llm_diagnostics(second_filter_result),
+            "search_errors": search_errors,
+            "step_counts": [
+                {"step": "generate_terms", "count": len(terms)},
+                {"step": "vector_search_candidates", "count": len(search_candidates)},
+                {"step": "standard_candidates", "count": len(candidate_concepts)},
+                {"step": "selected_after_initial_filter", "count": len(selected_concepts)},
+                {"step": "selected_after_first_prune", "count": len(concepts_after_first_prune)},
+                {"step": "phoebe_related", "count": len(related_concepts)},
+                {"step": "merged_candidates", "count": len(final_candidates)},
+                {"step": "final_concepts", "count": len(final_concepts)},
+            ],
+        }
+        domain_output = {
+            "domain_key": domain_key,
+            "target": target,
+            "terms": terms,
+            "concepts": final_concepts,
+            "diagnostics": diagnostics["step_counts"],
+        }
+        return {
+            "status": "ok",
+            "terms": terms,
+            "concepts": final_concepts,
+            "domain_output": domain_output,
+            "diagnostics": diagnostics,
+        }
 
     def _wrap_result(self, name: str, result: Dict[str, Any], warnings: List[str]) -> Dict[str, Any]:
         safe_summary = self._safe_summary(result)

@@ -379,6 +379,100 @@ curl -s -X POST http://127.0.0.1:8765/flows/phenotype_validation_review \
   -d '{"disease_name":"Gastrointestinal bleeding","keeper_row":{"age":44,"gender":"Male","visitContext":"Inpatient Visit","presentation":"Gastrointestinal hemorrhage","priorDisease":"Peptic ulcer","symptoms":"","comorbidities":"","priorDrugs":"celecoxib","priorTreatmentProcedures":"","diagnosticProcedures":"","measurements":"","alternativeDiagnosis":"","afterDisease":"","afterDrugs":"Naproxen","afterTreatmentProcedures":""}}'
 ```
 
+Keeper concept sets generate:
+
+```For the ACP/MCP using Hecate
+
+export VOCAB_SEARCH_PROVIDER=hecate_api
+export VOCAB_SEARCH_URL="https://hecate.pantheon-hds.com/api/search_standard"
+export PHOEBE_PROVIDER=hecate_api
+export PHOEBE_URL_TEMPLATE="https://hecate.pantheon-hds.com/api/concepts/{concept_id}/phoebe"
+```
+
+Then...
+```bash
+curl -s -X POST http://127.0.0.1:8765/flows/keeper_concept_sets_generate \
+  -H 'Content-Type: application/json' \
+  -d '{"phenotype":"Gastrointestinal bleeding","domain_keys":["doi","alternativeDiagnosis","symptoms"],"candidate_limit":10,"include_diagnostics":true}'
+```
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "keeper_concept_set_bundle",
+    "arguments": {
+      "phenotype": "Gastrointestinal bleeding",
+      "domain_key": "doi",
+      "target": "Disease of interest"
+    }
+  }'
+```
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "vocab_search_standard",
+    "arguments": {
+      "query": "gastrointestinal hemorrhage",
+      "domains": ["Condition"],
+      "concept_classes": [],
+      "limit": 5,
+      "provider": "hecate_api"
+    }
+  }'
+```
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+    "name": "phoebe_related_concepts",
+    "arguments": {
+      "concept_ids": [192671],
+      "relationship_ids": [],
+      "provider": "hecate_api"
+    }
+  }' | python -m json.tool
+```
+
+```For the ACP/MCP using a local embedding API and Pheobe by database connection
+
+export VOCAB_SEARCH_PROVIDER=generic_search_api
+export VOCAB_SEARCH_URL="VOCAB_SEARCH_URL="http://127.0.0.1:30080/search"
+export PHOEBE_PROVIDER=
+export PHOEBE_URL_TEMPLATE=
+
+curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+    "name": "vocab_search_standard",
+    "arguments": {
+      "query": "Instruction: retrieve the concepts most related to the query. Query: intracranial hemmhorage",
+      "domains": ["Condition"],
+      "concept_classes": [],
+      "limit": 5,
+      "provider": "generic_search_api"
+    }
+  }'
+
+
+------------
+
+PHOEBE_PROVIDER=db
+# URL encoded pword
+VOCAB_DB_ENGINE='postgresql://rdb20:T7y7ZWdL%21%40@localhost:6433/cem' 
+VOCAB_DATABASE_SCHEMA=vocabulary
+PHOEBE_DB_TABLE=concept_recommended
+VOCAB_CONCEPT_TABLE=concept
+
+curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+    "name": "phoebe_related_concepts",
+    "arguments": {
+      "concept_ids": [192671],
+      "relationship_ids": ["Patient context"],
+      "provider": "db"
+    }
+  }'
+
+
 ## Phenotype flow smoke test (ACP + MCP)
 
 Run the Python smoke test via `doit`:
@@ -413,6 +507,12 @@ doit smoke_cohort_critique_flow
 
 ```bash
 doit smoke_phenotype_validation_review_flow
+```
+
+## Keeper concept sets generate smoke test
+
+```bash
+doit smoke_keeper_concept_sets_generate_flow
 ```
 
 ## MCP smoke test (import)

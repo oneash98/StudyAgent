@@ -15,6 +15,8 @@ SERVICES = [
     {"name": "concept_sets_review", "endpoint": "/flows/concept_sets_review"},
     {"name": "cohort_critique_general_design", "endpoint": "/flows/cohort_critique_general_design"},
     {"name": "phenotype_validation_review", "endpoint": "/flows/phenotype_validation_review"},
+    {"name": "keeper_concept_sets_generate", "endpoint": "/flows/keeper_concept_sets_generate"},
+    {"name": "keeper_profiles_generate", "endpoint": "/flows/keeper_profiles_generate"},
     {"name": "phenotype_recommendation_advice", "endpoint": "/flows/phenotype_recommendation_advice"},
     {"name": "phenotype_intent_split", "endpoint": "/flows/phenotype_intent_split"},
 ]
@@ -424,6 +426,44 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
                 return
             status = 200 if result.get("status") != "error" else 500
             _write_json(self, status, result)
+            return
+
+        if self.path == "/flows/keeper_concept_sets_generate":
+            try:
+                body = _read_json(self)
+            except Exception as exc:
+                _write_json(self, 400, {"error": f"invalid_json: {exc}"})
+                return
+            phenotype = body.get("phenotype") or ""
+            domain_keys = body.get("domain_keys") or []
+            vocab_search_provider = body.get("vocab_search_provider") or ""
+            phoebe_provider = body.get("phoebe_provider") or ""
+            candidate_limit = int(body.get("candidate_limit", 50))
+            min_record_count = int(body.get("min_record_count", 0))
+            include_diagnostics = bool(body.get("include_diagnostics", True))
+            try:
+                result = self.agent.run_keeper_concept_sets_generate_flow(
+                    phenotype=phenotype,
+                    domain_keys=domain_keys,
+                    vocab_search_provider=vocab_search_provider,
+                    phoebe_provider=phoebe_provider,
+                    candidate_limit=candidate_limit,
+                    min_record_count=min_record_count,
+                    include_diagnostics=include_diagnostics,
+                )
+            except Exception as exc:
+                if self.debug:
+                    import traceback
+
+                    traceback.print_exc()
+                _write_json(self, 500, {"error": "flow_failed", "detail": str(exc) if self.debug else None})
+                return
+            status = 200 if result.get("status") != "error" else 500
+            _write_json(self, status, result)
+            return
+
+        if self.path == "/flows/keeper_profiles_generate":
+            _write_json(self, 501, {"error": "not_implemented"})
             return
 
         if self.path == "/flows/phenotype_recommendation_advice":

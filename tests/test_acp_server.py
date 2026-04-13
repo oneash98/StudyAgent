@@ -139,6 +139,87 @@ class StubMCPClient:
             return {"prompt": "main"}
         if name == "keeper_parse_response":
             return {"label": "yes", "rationale": "ok"}
+        if name == "keeper_concept_set_bundle":
+            if arguments.get("domain_key"):
+                domain_key = arguments["domain_key"]
+                return {
+                    "task": "keeper_concept_sets_generate",
+                    "overview": "overview",
+                    "domain": {
+                        "parameterName": domain_key,
+                        "domains": ["Condition"],
+                        "conceptClasses": [],
+                    },
+                    "spec_generate_terms": "spec terms",
+                    "spec_filter_concepts": "spec filter",
+                    "output_schema_generate_terms": {"type": "object"},
+                    "output_schema_filter_concepts": {"type": "object"},
+                    "term_generation_prompt": f"generate {domain_key}",
+                    "concept_filter_prompt": f"filter {domain_key}",
+                }
+            return {
+                "task": "keeper_concept_sets_generate",
+                "domains": [
+                    {"parameterName": "doi"},
+                    {"parameterName": "alternativeDiagnosis"},
+                    {"parameterName": "symptoms"},
+                ],
+            }
+        if name == "vocab_search_standard":
+            term = arguments["query"]
+            if "Mallory" in term:
+                return {
+                    "error": "vocab_search_provider_unconfigured",
+                    "concepts": [],
+                    "count": 0,
+                }
+            if "Gastrointestinal bleeding" in term or "hemorrhage" in term:
+                return {
+                    "concepts": [
+                        {
+                            "conceptId": 100,
+                            "conceptName": "Gastrointestinal hemorrhage",
+                            "vocabularyId": "SNOMED",
+                            "domainId": "Condition",
+                            "conceptClassId": "Clinical Finding",
+                            "standardConcept": "S",
+                            "recordCount": 50000,
+                        }
+                    ],
+                    "count": 1,
+                }
+            if "abdominal pain" in term:
+                return {
+                    "concepts": [
+                        {
+                            "conceptId": 200,
+                            "conceptName": "Abdominal pain",
+                            "vocabularyId": "SNOMED",
+                            "domainId": "Condition",
+                            "conceptClassId": "Clinical Finding",
+                            "standardConcept": "S",
+                            "recordCount": 75000,
+                        }
+                    ],
+                    "count": 1,
+                }
+            return {"concepts": [], "count": 0}
+        if name == "vocab_filter_standard_concepts":
+            return {"concepts": arguments.get("concepts", []), "count": len(arguments.get("concepts", []))}
+        if name == "vocab_fetch_concepts":
+            concepts = arguments.get("concepts", [])
+            selected = set(arguments.get("concept_ids", []))
+            return {
+                "concepts": [concept for concept in concepts if concept.get("conceptId") in selected],
+                "count": len([concept for concept in concepts if concept.get("conceptId") in selected]),
+            }
+        if name == "vocab_remove_descendants":
+            return {"concepts": arguments.get("concepts", []), "count": len(arguments.get("concepts", []))}
+        if name == "phoebe_related_concepts":
+            return {"error": "phoebe_provider_unconfigured", "concepts": [], "count": 0}
+        if name == "vocab_add_nonchildren":
+            concepts = list(arguments.get("concepts", [])) + list(arguments.get("new_concepts", []))
+            return {"concepts": concepts, "count": len(concepts)}
         if name == "propose_concept_set_diff":
             return {"plan": "ok", "findings": [], "patches": [], "actions": [], "risk_notes": []}
         if name == "cohort_lint":
@@ -211,6 +292,50 @@ def test_flow_phenotype_validation_review(monkeypatch):
     )
     assert result["status"] == "ok"
     assert result["full_result"]["label"] == "yes"
+
+
+@pytest.mark.acp
+def test_flow_keeper_concept_sets_generate(monkeypatch):
+    import study_agent_acp.agent as agent_module
+
+    calls = {"count": 0}
+
+    def fake_llm(prompt, required_keys=None):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {"terms": ["Gastrointestinal bleeding", "hemorrhage"]}
+        if calls["count"] == 2:
+            return {"conceptId": [100]}
+        if calls["count"] == 3:
+            return {"conceptId": [100]}
+        if calls["count"] == 4:
+            return {"terms": ["Mallory-Weiss tear", "Peptic ulcer disease"]}
+        if calls["count"] == 5:
+            return {"conceptId": []}
+        if calls["count"] == 6:
+            return {"conceptId": []}
+        if calls["count"] == 7:
+            return {"terms": ["abdominal pain"]}
+        if calls["count"] == 8:
+            return {"conceptId": [200]}
+        if calls["count"] == 9:
+            return {"conceptId": [200]}
+        if required_keys == ["terms"]:
+            return {"terms": []}
+        return {"conceptId": []}
+
+    monkeypatch.setattr(agent_module, "call_llm", fake_llm)
+    agent = StudyAgent(mcp_client=StubMCPClient())
+    result = agent.run_keeper_concept_sets_generate_flow(
+        phenotype="Gastrointestinal bleeding",
+        include_diagnostics=True,
+    )
+    assert result["status"] == "ok"
+    assert result["phenotype"] == "Gastrointestinal bleeding"
+    assert len(result["concept_sets"]) == 2
+    assert {item["conceptSetName"] for item in result["concept_sets"]} == {"doi", "symptoms"}
+    assert any(domain["domain_key"] == "alternativeDiagnosis" for domain in result["domains"])
+    assert result["diagnostics"]["domain_runs"][0]["domain_key"] == "doi"
 
 
 @pytest.mark.acp

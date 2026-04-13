@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import urllib.parse
+import urllib.request
 from typing import Any, Dict, List
 
+import sqlalchemy as sa
 import yaml
+from omop_alchemy import create_engine_with_dependencies
 
 from ._common import with_meta
+from study_agent_core.net import rewrite_container_host_url
 
 _CACHE: Dict[str, Any] = {}
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _prompt_dir() -> str:
@@ -123,6 +130,210 @@ def _provider_value(explicit: str, env_name: str) -> str:
     return value
 
 
+def _safe_identifier(value: str, label: str) -> str:
+    if not value or not _IDENTIFIER_RE.match(value):
+        raise RuntimeError(f"invalid_{label}")
+    return value
+
+
+def _resolve_vocab_engine_name() -> str:
+    engine_name = (
+        os.getenv("VOCAB_DB_ENGINE")
+        or os.getenv("ENGINE_VOCAB")
+        or os.getenv("ENGINE")
+        or ""
+    ).strip()
+    if engine_name:
+        return engine_name
+    raise RuntimeError("vocab_db_engine_unconfigured")
+
+
+def _load_http_json(url: str, timeout: int = 30) -> Any:
+    request = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read().decode("utf-8")
+    return json.loads(raw)
+
+
+def _post_http_json(url: str, payload: Dict[str, Any], timeout: int = 30) -> Any:
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=body, method="POST")
+    request.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read().decode("utf-8")
+    return json.loads(raw)
+
+
+def _search_standard_via_hecate(
+    query: str,
+    domains: List[str] | None,
+    concept_classes: List[str] | None,
+    limit: int,
+) -> Dict[str, Any]:
+    endpoint = os.getenv("VOCAB_SEARCH_URL", "https://hecate.pantheon-hds.com/api/search_standard")
+    endpoint = rewrite_container_host_url(endpoint)
+    timeout = int(os.getenv("VOCAB_SEARCH_TIMEOUT", "30"))
+    params = {
+        "q": query,
+        "limit": max(int(limit), 1),
+    }
+    if domains:
+        params["domain_id"] = ",".join(domains)
+    if concept_classes:
+        params["concept_class_id"] = ",".join(concept_classes)
+    url = endpoint + "?" + urllib.parse.urlencode(params)
+    payload = _load_http_json(url, timeout=timeout)
+    concept_rows: List[Dict[str, Any]] = []
+    if isinstance(payload, dict):
+        concepts = payload.get("concepts") or []
+        concept_rows.extend(concepts if isinstance(concepts, list) else [])
+    elif isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, dict) and isinstance(item.get("concepts"), list):
+                score = item.get("score")
+                for concept in item.get("concepts") or []:
+                    if not isinstance(concept, dict):
+                        continue
+                    concept_with_score = dict(concept)
+                    if score is not None and concept_with_score.get("score") in (None, ""):
+                        concept_with_score["score"] = score
+                    concept_rows.append(concept_with_score)
+            elif isinstance(item, dict):
+                concept_rows.append(item)
+    normalized = _dedupe_concepts(concept_rows)
+    return {"concepts": normalized, "count": len(normalized), "provider": "hecate_api", "url": endpoint}
+
+
+def _iter_generic_result_rows(payload: Any) -> List[Dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in ("results", "items", "concepts", "matches", "rows", "data"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _search_standard_via_generic_api(
+    query: str,
+    domains: List[str] | None,
+    concept_classes: List[str] | None,
+    limit: int,
+) -> Dict[str, Any]:
+    endpoint = os.getenv("VOCAB_SEARCH_URL", "http://127.0.0.1:18080/search")
+    endpoint = rewrite_container_host_url(endpoint)
+    timeout = int(os.getenv("VOCAB_SEARCH_TIMEOUT", "30"))
+    query_prefix = os.getenv("VOCAB_SEARCH_QUERY_PREFIX", "")
+    query_text = f"{query_prefix}{query}" if query_prefix else query
+    request_payload: Dict[str, Any] = {
+        "query_id": os.getenv("VOCAB_SEARCH_QUERY_ID", "1"),
+        "query_text": query_text,
+        "k": max(int(limit), 1),
+    }
+    if domains:
+        request_payload["domains"] = domains
+    if concept_classes:
+        request_payload["concept_classes"] = concept_classes
+    payload = _post_http_json(endpoint, request_payload, timeout=timeout)
+    normalized = _dedupe_concepts(_iter_generic_result_rows(payload))
+    filtered = [
+        concept
+        for concept in normalized
+        if (not domains or not concept.get("domainId") or concept.get("domainId") in domains)
+        and (not concept_classes or not concept.get("conceptClassId") or concept.get("conceptClassId") in concept_classes)
+    ]
+    return {
+        "concepts": filtered,
+        "count": len(filtered),
+        "provider": "generic_search_api",
+        "url": endpoint,
+        "request_payload": request_payload,
+    }
+
+
+def _phoebe_via_hecate(concept_ids: List[int], relationship_ids: List[str] | None) -> Dict[str, Any]:
+    timeout = int(os.getenv("PHOEBE_TIMEOUT", "30"))
+    endpoint_template = os.getenv(
+        "PHOEBE_URL_TEMPLATE",
+        "https://hecate.pantheon-hds.com/api/concepts/{concept_id}/phoebe",
+    )
+    endpoint_template = rewrite_container_host_url(endpoint_template)
+    relationships = set(relationship_ids or [])
+    related: List[Dict[str, Any]] = []
+    for concept_id in concept_ids:
+        url = endpoint_template.format(concept_id=concept_id)
+        payload = _load_http_json(url, timeout=timeout)
+        if payload in (None, [], {}):
+            continue
+        concepts = payload if isinstance(payload, list) else payload.get("concepts") or []
+        for concept in _dedupe_concepts(concepts):
+            concept["sourceConceptId"] = concept_id
+            if relationships and concept.get("relationshipId") not in relationships:
+                continue
+            related.append(concept)
+    deduped = _dedupe_concepts(related)
+    return {"concepts": deduped, "count": len(deduped), "provider": "hecate_api"}
+
+
+def _phoebe_via_db(concept_ids: List[int], relationship_ids: List[str] | None) -> Dict[str, Any]:
+    if not concept_ids:
+        return {"concepts": [], "count": 0, "provider": "db"}
+    engine_name = _resolve_vocab_engine_name()
+    schema = _safe_identifier(os.getenv("VOCAB_DATABASE_SCHEMA", "vocabulary"), "vocab_database_schema")
+    recommend_table = _safe_identifier(os.getenv("PHOEBE_DB_TABLE", "concept_recommended"), "phoebe_db_table")
+    concept_table = _safe_identifier(os.getenv("VOCAB_CONCEPT_TABLE", "concept"), "vocab_concept_table")
+    engine = create_engine_with_dependencies(engine_name, future=True)
+
+    relationship_clause = ""
+    params: Dict[str, Any] = {"concept_ids": list(concept_ids)}
+    bindparams = [sa.bindparam("concept_ids", expanding=True)]
+    if relationship_ids:
+        relationship_clause = " AND cr.relationship_id IN :relationship_ids"
+        params["relationship_ids"] = list(relationship_ids)
+        bindparams.append(sa.bindparam("relationship_ids", expanding=True))
+
+    sql = sa.text(
+        f"""
+        SELECT
+            cr.concept_id_1 AS source_concept_id,
+            cr.concept_id_2 AS concept_id,
+            cr.relationship_id AS relationship_id,
+            c.concept_name AS concept_name,
+            c.domain_id AS domain_id,
+            c.vocabulary_id AS vocabulary_id,
+            c.concept_class_id AS concept_class_id,
+            c.standard_concept AS standard_concept
+        FROM {schema}.{recommend_table} cr
+        JOIN {schema}.{concept_table} c
+          ON c.concept_id = cr.concept_id_2
+        WHERE cr.concept_id_1 IN :concept_ids
+        {relationship_clause}
+        """
+    ).bindparams(*bindparams)
+
+    with engine.connect() as connection:
+        rows = connection.execute(sql, params).mappings().all()
+
+    concepts = []
+    for row in rows:
+        concepts.append(
+            {
+                "conceptId": row.get("concept_id"),
+                "conceptName": row.get("concept_name", ""),
+                "vocabularyId": row.get("vocabulary_id", ""),
+                "domainId": row.get("domain_id", ""),
+                "conceptClassId": row.get("concept_class_id", ""),
+                "standardConcept": row.get("standard_concept", ""),
+                "relationshipId": row.get("relationship_id", ""),
+                "sourceConceptId": row.get("source_concept_id"),
+            }
+        )
+    deduped = _dedupe_concepts(concepts)
+    return {"concepts": deduped, "count": len(deduped), "provider": "db"}
+
+
 def register(mcp: object) -> None:
     @mcp.tool(name="keeper_concept_set_bundle")
     def keeper_concept_set_bundle_tool(
@@ -169,8 +380,6 @@ def register(mcp: object) -> None:
         provider: str = "",
         results: List[Dict[str, Any]] | None = None,
     ) -> Dict[str, Any]:
-        del query
-        del limit
         concepts = _dedupe_concepts(results or [])
         if concepts:
             filtered = [
@@ -191,6 +400,36 @@ def register(mcp: object) -> None:
             )
         if selected_provider == "none":
             return with_meta({"concepts": [], "count": 0, "provider": selected_provider}, "vocab_search_standard")
+        if selected_provider == "hecate_api":
+            try:
+                payload = _search_standard_via_hecate(query, domains, concept_classes, limit)
+            except Exception as exc:
+                return with_meta(
+                    {
+                        "error": "vocab_search_provider_failed",
+                        "provider": selected_provider,
+                        "details": str(exc),
+                        "concepts": [],
+                        "count": 0,
+                    },
+                    "vocab_search_standard",
+                )
+            return with_meta(payload, "vocab_search_standard")
+        if selected_provider == "generic_search_api":
+            try:
+                payload = _search_standard_via_generic_api(query, domains, concept_classes, limit)
+            except Exception as exc:
+                return with_meta(
+                    {
+                        "error": "vocab_search_provider_failed",
+                        "provider": selected_provider,
+                        "details": str(exc),
+                        "concepts": [],
+                        "count": 0,
+                    },
+                    "vocab_search_standard",
+                )
+            return with_meta(payload, "vocab_search_standard")
         return with_meta(
             {
                 "error": "vocab_search_provider_not_implemented",
@@ -208,7 +447,6 @@ def register(mcp: object) -> None:
         provider: str = "",
         related_concepts: List[Dict[str, Any]] | None = None,
     ) -> Dict[str, Any]:
-        del concept_ids
         relationships = set(relationship_ids or [])
         concepts = _dedupe_concepts(related_concepts or [])
         if concepts:
@@ -226,6 +464,36 @@ def register(mcp: object) -> None:
             )
         if selected_provider == "none":
             return with_meta({"concepts": [], "count": 0, "provider": selected_provider}, "phoebe_related_concepts")
+        if selected_provider == "hecate_api":
+            try:
+                payload = _phoebe_via_hecate(concept_ids, relationship_ids)
+            except Exception as exc:
+                return with_meta(
+                    {
+                        "error": "phoebe_provider_failed",
+                        "provider": selected_provider,
+                        "details": str(exc),
+                        "concepts": [],
+                        "count": 0,
+                    },
+                    "phoebe_related_concepts",
+                )
+            return with_meta(payload, "phoebe_related_concepts")
+        if selected_provider == "db":
+            try:
+                payload = _phoebe_via_db(concept_ids, relationship_ids)
+            except Exception as exc:
+                return with_meta(
+                    {
+                        "error": "phoebe_provider_failed",
+                        "provider": selected_provider,
+                        "details": str(exc),
+                        "concepts": [],
+                        "count": 0,
+                    },
+                    "phoebe_related_concepts",
+                )
+            return with_meta(payload, "phoebe_related_concepts")
         return with_meta(
             {
                 "error": "phoebe_provider_not_implemented",
