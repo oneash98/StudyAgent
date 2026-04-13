@@ -148,6 +148,15 @@ def _resolve_vocab_engine_name() -> str:
     raise RuntimeError("vocab_db_engine_unconfigured")
 
 
+def _resolve_vocab_metadata_provider(explicit: str = "") -> str:
+    value = (explicit or os.getenv("VOCAB_METADATA_PROVIDER", "")).strip()
+    if value:
+        return value
+    if os.getenv("VOCAB_DB_ENGINE") or os.getenv("ENGINE_VOCAB") or os.getenv("ENGINE"):
+        return "db"
+    return ""
+
+
 def _load_http_json(url: str, timeout: int = 30) -> Any:
     request = urllib.request.Request(url, method="GET")
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -334,6 +343,98 @@ def _phoebe_via_db(concept_ids: List[int], relationship_ids: List[str] | None) -
     return {"concepts": deduped, "count": len(deduped), "provider": "db"}
 
 
+def _fetch_concepts_via_db(
+    concept_ids: List[int],
+    domains: List[str] | None = None,
+    concept_classes: List[str] | None = None,
+    require_standard: bool = False,
+) -> Dict[str, Any]:
+    if not concept_ids:
+        return {"concepts": [], "count": 0, "provider": "db"}
+    engine_name = _resolve_vocab_engine_name()
+    schema = _safe_identifier(os.getenv("VOCAB_DATABASE_SCHEMA", "vocabulary"), "vocab_database_schema")
+    concept_table = _safe_identifier(os.getenv("VOCAB_CONCEPT_TABLE", "concept"), "vocab_concept_table")
+    engine = create_engine_with_dependencies(engine_name, future=True)
+
+    conditions = ["concept_id IN :concept_ids"]
+    params: Dict[str, Any] = {"concept_ids": list(concept_ids)}
+    bindparams = [sa.bindparam("concept_ids", expanding=True)]
+    if require_standard:
+        conditions.append("standard_concept IN :standard_concepts")
+        params["standard_concepts"] = ["S", "C"]
+        bindparams.append(sa.bindparam("standard_concepts", expanding=True))
+    if domains:
+        conditions.append("domain_id IN :domain_ids")
+        params["domain_ids"] = list(domains)
+        bindparams.append(sa.bindparam("domain_ids", expanding=True))
+    if concept_classes:
+        conditions.append("concept_class_id IN :concept_classes")
+        params["concept_classes"] = list(concept_classes)
+        bindparams.append(sa.bindparam("concept_classes", expanding=True))
+
+    sql = sa.text(
+        f"""
+        SELECT
+            concept_id,
+            concept_name,
+            domain_id,
+            vocabulary_id,
+            concept_class_id,
+            standard_concept
+        FROM {schema}.{concept_table}
+        WHERE {" AND ".join(conditions)}
+        """
+    ).bindparams(*bindparams)
+
+    with engine.connect() as connection:
+        rows = connection.execute(sql, params).mappings().all()
+
+    concepts = []
+    for row in rows:
+        concepts.append(
+            {
+                "conceptId": row.get("concept_id"),
+                "conceptName": row.get("concept_name", ""),
+                "vocabularyId": row.get("vocabulary_id", ""),
+                "domainId": row.get("domain_id", ""),
+                "conceptClassId": row.get("concept_class_id", ""),
+                "standardConcept": row.get("standard_concept", ""),
+            }
+        )
+    deduped = _dedupe_concepts(concepts)
+    return {"concepts": deduped, "count": len(deduped), "provider": "db"}
+
+
+def _merge_inline_with_db(
+    inline_concepts: List[Dict[str, Any]],
+    db_concepts: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    inline_by_id = {}
+    for concept in _dedupe_concepts(inline_concepts):
+        concept_id = concept.get("conceptId")
+        if concept_id is not None:
+            inline_by_id[concept_id] = concept
+    merged = []
+    for db_concept in _dedupe_concepts(db_concepts):
+        concept_id = db_concept.get("conceptId")
+        combined = dict(db_concept)
+        if concept_id in inline_by_id:
+            inline = inline_by_id[concept_id]
+            for key in ("score", "recordCount", "sourceTerm", "sourceStage", "relationshipId", "sourceConceptId"):
+                value = inline.get(key)
+                if value not in (None, "", []):
+                    combined[key] = value
+        merged.append(combined)
+    return merged
+
+
+def _concepts_need_db_enrichment(concepts: List[Dict[str, Any]]) -> bool:
+    for concept in _dedupe_concepts(concepts):
+        if not concept.get("conceptName") or not concept.get("domainId") or not concept.get("standardConcept"):
+            return True
+    return False
+
+
 def register(mcp: object) -> None:
     @mcp.tool(name="keeper_concept_set_bundle")
     def keeper_concept_set_bundle_tool(
@@ -509,9 +610,35 @@ def register(mcp: object) -> None:
         concepts: List[Dict[str, Any]],
         domains: List[str] | None = None,
         concept_classes: List[str] | None = None,
+        provider: str = "",
     ) -> Dict[str, Any]:
+        deduped = _dedupe_concepts(concepts)
+        metadata_provider = _resolve_vocab_metadata_provider(provider)
+        if metadata_provider == "db" and _concepts_need_db_enrichment(deduped):
+            try:
+                db_payload = _fetch_concepts_via_db(
+                    [concept["conceptId"] for concept in deduped if concept.get("conceptId") is not None],
+                    domains=domains,
+                    concept_classes=concept_classes,
+                    require_standard=True,
+                )
+            except Exception as exc:
+                return with_meta(
+                    {
+                        "error": "vocab_filter_standard_concepts_failed",
+                        "provider": metadata_provider,
+                        "details": str(exc),
+                    },
+                    "vocab_filter_standard_concepts",
+                )
+            merged = _merge_inline_with_db(deduped, db_payload.get("concepts") or [])
+            return with_meta(
+                {"concepts": merged, "count": len(merged), "provider": metadata_provider},
+                "vocab_filter_standard_concepts",
+            )
+
         filtered = []
-        for concept in _dedupe_concepts(concepts):
+        for concept in deduped:
             standard = concept.get("standardConcept")
             if standard and standard not in ("S", "C"):
                 continue
@@ -573,13 +700,59 @@ def register(mcp: object) -> None:
     def vocab_fetch_concepts_tool(
         concept_ids: List[int],
         concepts: List[Dict[str, Any]] | None = None,
+        provider: str = "",
     ) -> Dict[str, Any]:
-        if concepts:
-            by_id = {concept["conceptId"]: concept for concept in _dedupe_concepts(concepts)}
+        deduped = _dedupe_concepts(concepts or [])
+        metadata_provider = _resolve_vocab_metadata_provider(provider)
+        if deduped and metadata_provider == "db" and _concepts_need_db_enrichment(deduped):
+            try:
+                db_payload = _fetch_concepts_via_db(concept_ids, require_standard=False)
+            except Exception as exc:
+                return with_meta(
+                    {
+                        "error": "vocab_fetch_concepts_failed",
+                        "provider": metadata_provider,
+                        "details": str(exc),
+                        "concepts": [],
+                        "count": 0,
+                    },
+                    "vocab_fetch_concepts",
+                )
+            merged = _merge_inline_with_db(deduped, db_payload.get("concepts") or [])
+            by_id = {concept["conceptId"]: concept for concept in merged}
+            found = [by_id[concept_id] for concept_id in concept_ids if concept_id in by_id]
+            missing = [concept_id for concept_id in concept_ids if concept_id not in by_id]
+            return with_meta(
+                {"concepts": found, "count": len(found), "missing_concept_ids": missing, "provider": metadata_provider},
+                "vocab_fetch_concepts",
+            )
+        if deduped:
+            by_id = {concept["conceptId"]: concept for concept in deduped}
             found = [by_id[concept_id] for concept_id in concept_ids if concept_id in by_id]
             missing = [concept_id for concept_id in concept_ids if concept_id not in by_id]
             return with_meta(
                 {"concepts": found, "count": len(found), "missing_concept_ids": missing},
+                "vocab_fetch_concepts",
+            )
+        if metadata_provider == "db":
+            try:
+                db_payload = _fetch_concepts_via_db(concept_ids, require_standard=False)
+            except Exception as exc:
+                return with_meta(
+                    {
+                        "error": "vocab_fetch_concepts_failed",
+                        "provider": metadata_provider,
+                        "details": str(exc),
+                        "concepts": [],
+                        "count": 0,
+                    },
+                    "vocab_fetch_concepts",
+                )
+            found = db_payload.get("concepts") or []
+            found_ids = {concept.get("conceptId") for concept in found}
+            missing = [concept_id for concept_id in concept_ids if concept_id not in found_ids]
+            return with_meta(
+                {"concepts": found, "count": len(found), "missing_concept_ids": missing, "provider": metadata_provider},
                 "vocab_fetch_concepts",
             )
         return with_meta(

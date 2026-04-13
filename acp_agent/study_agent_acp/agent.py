@@ -128,6 +128,56 @@ class StudyAgent:
             deduped.append(concept)
         return deduped
 
+    def _extract_keeper_concept_ids(self, result: Optional[LLMCallResult]) -> tuple[list[int], Optional[str]]:
+        if result is None:
+            return [], None
+        parsed_any = result.parsed_content
+        if isinstance(parsed_any, list):
+            extracted = []
+            for concept in parsed_any:
+                if not isinstance(concept, dict):
+                    continue
+                value = concept.get("conceptId", concept.get("concept_id"))
+                try:
+                    extracted.append(int(value))
+                except (TypeError, ValueError):
+                    continue
+            if extracted:
+                return extracted, "top_level_array"
+            return [], None
+        if not isinstance(parsed_any, dict):
+            return [], None
+        parsed = parsed_any
+        ids = parsed.get("conceptId")
+        if ids not in (None, "") and not isinstance(ids, list):
+            try:
+                return [int(ids)], "scalar_conceptId"
+            except (TypeError, ValueError):
+                return [], None
+        if isinstance(ids, list):
+            extracted: list[int] = []
+            for value in ids:
+                try:
+                    extracted.append(int(value))
+                except (TypeError, ValueError):
+                    continue
+            return extracted, None
+
+        concepts = parsed.get("concepts")
+        if isinstance(concepts, list):
+            extracted = []
+            for concept in concepts:
+                if not isinstance(concept, dict):
+                    continue
+                value = concept.get("conceptId", concept.get("concept_id"))
+                try:
+                    extracted.append(int(value))
+                except (TypeError, ValueError):
+                    continue
+            if extracted:
+                return extracted, "concepts_array"
+        return [], None
+
     def _call_llm(self, prompt: str, required_keys: Optional[List[str]] = None) -> LLMCallResult:
         try:
             return coerce_llm_call_result(call_llm(prompt, required_keys=required_keys))
@@ -815,6 +865,7 @@ class StudyAgent:
                 "concepts": filtered_candidates,
                 "domains": domains,
                 "concept_classes": concept_classes,
+                "provider": "db" if vocab_search_provider == "generic_search_api" else "",
             },
         )
         standard_full = standard_result.get("full_result") or {}
@@ -843,7 +894,8 @@ class StudyAgent:
             max_kb=16,
         )
         filter_result = self._call_llm(filter_prompt, required_keys=["conceptId"])
-        if filter_result.status != "ok":
+        selected_ids, filter_salvage_mode = self._extract_keeper_concept_ids(filter_result)
+        if filter_result.status != "ok" and not selected_ids:
             return {
                 "status": "error",
                 "error": "keeper_filter_concepts_failed",
@@ -851,12 +903,14 @@ class StudyAgent:
                 "target": target,
                 "diagnostics": self._llm_diagnostics(filter_result),
             }
-        filter_payload = llm_result_payload(filter_result) or {}
-        selected_ids = [int(concept_id) for concept_id in (filter_payload.get("conceptId") or [])]
 
         selected_result = self.call_tool(
             name="vocab_fetch_concepts",
-            arguments={"concept_ids": selected_ids, "concepts": candidate_concepts},
+            arguments={
+                "concept_ids": selected_ids,
+                "concepts": candidate_concepts,
+                "provider": "db" if vocab_search_provider == "generic_search_api" else "",
+            },
         )
         selected_full = selected_result.get("full_result") or {}
         if selected_result.get("status") != "ok" or selected_full.get("error"):
@@ -908,6 +962,7 @@ class StudyAgent:
                     "concepts": related_concepts,
                     "domains": domains,
                     "concept_classes": concept_classes,
+                    "provider": "db" if vocab_search_provider == "generic_search_api" else "",
                 },
             )
             filtered_related_full = filtered_related.get("full_result") or {}
@@ -958,7 +1013,8 @@ class StudyAgent:
             max_kb=16,
         )
         second_filter_result = self._call_llm(second_filter_prompt, required_keys=["conceptId"])
-        if second_filter_result.status != "ok":
+        final_ids, second_filter_salvage_mode = self._extract_keeper_concept_ids(second_filter_result)
+        if second_filter_result.status != "ok" and not final_ids:
             return {
                 "status": "error",
                 "error": "keeper_filter_concepts_failed",
@@ -966,12 +1022,14 @@ class StudyAgent:
                 "target": target,
                 "diagnostics": self._llm_diagnostics(second_filter_result),
             }
-        second_filter_payload = llm_result_payload(second_filter_result) or {}
-        final_ids = [int(concept_id) for concept_id in (second_filter_payload.get("conceptId") or [])]
 
         final_fetch = self.call_tool(
             name="vocab_fetch_concepts",
-            arguments={"concept_ids": final_ids, "concepts": final_candidates},
+            arguments={
+                "concept_ids": final_ids,
+                "concepts": final_candidates,
+                "provider": "db" if vocab_search_provider == "generic_search_api" else "",
+            },
         )
         final_fetch_full = final_fetch.get("full_result") or {}
         if final_fetch.get("status") != "ok" or final_fetch_full.get("error"):
@@ -1008,6 +1066,8 @@ class StudyAgent:
             "llm_generate_terms": self._llm_diagnostics(terms_result),
             "llm_filter_initial": self._llm_diagnostics(filter_result),
             "llm_filter_final": self._llm_diagnostics(second_filter_result),
+            "llm_filter_initial_salvage_mode": filter_salvage_mode,
+            "llm_filter_final_salvage_mode": second_filter_salvage_mode,
             "search_errors": search_errors,
             "step_counts": [
                 {"step": "generate_terms", "count": len(terms)},

@@ -473,6 +473,22 @@ curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application
   }'
 
 
+-----------
+
+`keeper_concept_sets_generate` using LLM Shim
+- Make sure config.yaml of LLM Shim has bedrock configured for `us.anthropic.claude-*`
+
+- In ACP and MCP shells (note the 'us' before the model name which amazon needs for its load balancing)
+export LLM_MODEL=bedrock:us.anthropic.claude-opus-4-5-20251101-v1:0 
+
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/flows/keeper_concept_sets_generate \
+  -H 'Content-Type: application/json' \
+  -d '{"phenotype":"Gastrointestinal bleeding","domain_keys":["doi","alternativeDiagnosis","symptoms"],"candidate_limit":10,"include_diagnostics":true}'
+```
+
+
 ## Phenotype flow smoke test (ACP + MCP)
 
 Run the Python smoke test via `doit`:

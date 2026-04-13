@@ -339,6 +339,71 @@ def test_flow_keeper_concept_sets_generate(monkeypatch):
 
 
 @pytest.mark.acp
+def test_flow_keeper_concept_sets_generate_salvages_concepts_array_schema(monkeypatch):
+    import study_agent_acp.agent as agent_module
+
+    calls = {"count": 0}
+
+    def fake_llm(prompt, required_keys=None):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {"terms": ["Gastrointestinal bleeding", "hemorrhage"]}
+        if calls["count"] == 2:
+            return {
+                "concepts": [
+                    {"concept_id": 100, "concept_name": "Gastrointestinal hemorrhage"},
+                ]
+            }
+        if calls["count"] == 3:
+            return {
+                "concepts": [
+                    {"concept_id": 100, "concept_name": "Gastrointestinal hemorrhage"},
+                ]
+            }
+        return {"conceptId": []}
+
+    monkeypatch.setattr(agent_module, "call_llm", fake_llm)
+    agent = StudyAgent(mcp_client=StubMCPClient())
+    result = agent.run_keeper_concept_sets_generate_flow(
+        phenotype="Gastrointestinal bleeding",
+        domain_keys=["doi"],
+        include_diagnostics=True,
+    )
+    assert result["status"] == "ok"
+    assert len(result["concept_sets"]) == 1
+    assert result["concept_sets"][0]["conceptId"] == 100
+    run = result["diagnostics"]["domain_runs"][0]
+    assert run["llm_filter_initial_salvage_mode"] == "concepts_array"
+    assert run["llm_filter_final_salvage_mode"] == "concepts_array"
+
+
+@pytest.mark.acp
+def test_extract_keeper_concept_ids_handles_scalar_and_top_level_array():
+    from study_agent_acp.agent import StudyAgent
+    from study_agent_acp.llm_client import LLMCallResult
+
+    agent = StudyAgent(mcp_client=StubMCPClient())
+
+    scalar_ids, scalar_mode = agent._extract_keeper_concept_ids(
+        LLMCallResult(status="ok", parsed_content={"conceptId": "439847"})
+    )
+    assert scalar_ids == [439847]
+    assert scalar_mode == "scalar_conceptId"
+
+    array_ids, array_mode = agent._extract_keeper_concept_ids(
+        LLMCallResult(
+            status="ok",
+            parsed_content=[
+                {"conceptId": "42872434"},
+                {"concept_id": "439847"},
+            ],
+        )
+    )
+    assert array_ids == [42872434, 439847]
+    assert array_mode == "top_level_array"
+
+
+@pytest.mark.acp
 def test_flow_phenotype_recommendation_advice(monkeypatch):
     import study_agent_acp.agent as agent_module
 

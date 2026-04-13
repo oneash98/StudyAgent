@@ -344,3 +344,72 @@ def test_phoebe_related_concepts_db_provider(monkeypatch) -> None:
     assert result["provider"] == "db"
     assert result["concepts"][0]["conceptId"] == 201
     assert result["concepts"][0]["sourceConceptId"] == 192671
+
+
+@pytest.mark.mcp
+def test_vocab_filter_standard_concepts_db_enriches_sparse_rows(monkeypatch) -> None:
+    tools = _registered_tools()
+
+    monkeypatch.setattr(
+        keeper_concept_sets,
+        "_fetch_concepts_via_db",
+        lambda concept_ids, domains=None, concept_classes=None, require_standard=False: {
+            "concepts": [
+                {
+                    "conceptId": 439847,
+                    "conceptName": "Intracranial hemorrhage",
+                    "vocabularyId": "SNOMED",
+                    "domainId": "Condition",
+                    "conceptClassId": "Disorder",
+                    "standardConcept": "S",
+                }
+            ],
+            "count": 1,
+            "provider": "db",
+        },
+    )
+    monkeypatch.setenv("VOCAB_METADATA_PROVIDER", "db")
+    result = tools["vocab_filter_standard_concepts"](
+        concepts=[{"conceptId": 439847, "score": 0.98}],
+        domains=["Condition"],
+        concept_classes=[],
+    )
+
+    assert result["count"] == 1
+    assert result["provider"] == "db"
+    assert result["concepts"][0]["conceptName"] == "Intracranial hemorrhage"
+    assert result["concepts"][0]["score"] == 0.98
+
+
+@pytest.mark.mcp
+def test_vocab_fetch_concepts_db_enriches_sparse_rows(monkeypatch) -> None:
+    tools = _registered_tools()
+
+    monkeypatch.setattr(
+        keeper_concept_sets,
+        "_fetch_concepts_via_db",
+        lambda concept_ids, domains=None, concept_classes=None, require_standard=False: {
+            "concepts": [
+                {
+                    "conceptId": 439847,
+                    "conceptName": "Intracranial hemorrhage",
+                    "vocabularyId": "SNOMED",
+                    "domainId": "Condition",
+                    "conceptClassId": "Disorder",
+                    "standardConcept": "S",
+                }
+            ],
+            "count": 1,
+            "provider": "db",
+        },
+    )
+    monkeypatch.setenv("VOCAB_METADATA_PROVIDER", "db")
+    result = tools["vocab_fetch_concepts"](
+        concept_ids=[439847],
+        concepts=[{"conceptId": 439847, "score": 0.98}],
+    )
+
+    assert result["count"] == 1
+    assert result["provider"] == "db"
+    assert result["concepts"][0]["conceptName"] == "Intracranial hemorrhage"
+    assert result["concepts"][0]["score"] == 0.98
