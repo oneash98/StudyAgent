@@ -197,7 +197,19 @@ Health check (PowerShell):
 Invoke-RestMethod -Uri http://127.0.0.1:8765/health
 ```
 
-Windows logging (redirect stdout/stderr to files):
+Built-in rotating service logging:
+
+```bash
+export STUDY_AGENT_LOG_DIR="/tmp/study-agent-logs"
+export ACP_LOG_LEVEL=DEBUG
+export MCP_LOG_LEVEL=DEBUG
+```
+
+ACP writes `study-agent-acp.log`; MCP writes `study-agent-mcp.log`.
+Use `ACP_LOG_FILE` or `MCP_LOG_FILE` to override the exact file path.
+Rotation is controlled by `STUDY_AGENT_LOG_MAX_BYTES` and `STUDY_AGENT_LOG_BACKUP_COUNT`.
+
+Windows logging via shell redirection still works if desired:
 
 ```powershell
 study-agent-mcp 1> mcp.out.log 2> mcp.err.log
@@ -252,7 +264,8 @@ export LLM_CANDIDATE_LIMIT=5
 export LLM_RECOMMENDATION_MAX_RESULTS=3
 ```
 
-`LLM_LOG=1` enables verbose LLM logging to ACP stdout (config, prompt, raw response).
+`LLM_LOG=1` enables verbose LLM logging in the ACP logger (config, prompt, raw response).
+For full payload capture during debugging, also set `LLM_LOG_RESPONSE=1`.
 For OpenWebUI using `/api/chat/completions`, keep `LLM_USE_RESPONSES=0` (the Responses API schema is not supported and can yield empty outputs).
 Recommended timeout ladder: `ACP_TIMEOUT > LLM_TIMEOUT > STUDY_AGENT_MCP_TIMEOUT`.
 
@@ -390,7 +403,7 @@ Supported provider patterns:
 Important:
 - restart ACP and MCP after code changes or environment changes affecting provider selection
 - `keeper_concept_sets_generate` does not use patient-level data
-- `keeper_profiles_generate` is still planned and not implemented yet
+- `keeper_profiles_generate` is deterministic only and does not call the LLM
 
 ### Hecate-backed configuration
 
@@ -407,6 +420,45 @@ Run the flow:
 curl -s -X POST http://127.0.0.1:8765/flows/keeper_concept_sets_generate \
   -H 'Content-Type: application/json' \
   -d '{"phenotype":"Gastrointestinal bleeding","domain_keys":["doi","alternativeDiagnosis","symptoms"],"candidate_limit":10,"include_diagnostics":true}' | python -m json.tool
+```
+
+## Keeper profiles generate
+
+This flow is now implemented for the first deterministic slice.
+
+What it does:
+- calls MCP `keeper_profile_extract` to query OMOP CDM and build Keeper-style long-form profile records
+- calls MCP `keeper_profile_to_rows` to convert those records into row-oriented review payloads
+- does not call the LLM
+
+Important:
+- row-level patient data remains on the deterministic MCP side
+- downstream `phenotype_validation_review` must still receive sanitized rows only
+- the current sampling mode is deterministic head-of-cohort, not random
+
+Example:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/flows/keeper_profiles_generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "cdm_database_schema": "cdm",
+    "cohort_database_schema": "results",
+    "cohort_table": "cohort",
+    "cohort_definition_id": 123,
+    "sample_size": 5,
+    "phenotype_name": "Gastrointestinal bleeding",
+    "remove_pii": true,
+    "keeper_concept_sets": [
+      {
+        "conceptId": 192671,
+        "conceptName": "Gastrointestinal hemorrhage",
+        "vocabularyId": "SNOMED",
+        "conceptSetName": "doi",
+        "target": "Disease of interest"
+      }
+    ]
+  }' | python -m json.tool
 ```
 
 Direct MCP tool checks through ACP:
@@ -462,7 +514,7 @@ export VOCAB_SEARCH_URL="http://127.0.0.1:30080/search"
 export VOCAB_SEARCH_QUERY_PREFIX="Instruction: retrieve the concepts most related to the query. Query: "
 export VOCAB_METADATA_PROVIDER=db
 export PHOEBE_PROVIDER=db
-export VOCAB_DB_ENGINE='<sqlalchemy engine url>'
+export OMOP_DB_ENGINE='<sqlalchemy engine url>'
 export VOCAB_DATABASE_SCHEMA=vocabulary
 export PHOEBE_DB_TABLE=concept_recommended
 export VOCAB_CONCEPT_TABLE=concept

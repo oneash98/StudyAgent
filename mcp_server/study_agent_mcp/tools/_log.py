@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import os
-import sys
 from typing import Any
+
+logger = logging.getLogger("study_agent.mcp")
 
 
 def _level_enabled(level: str) -> bool:
@@ -18,7 +20,7 @@ def _level_enabled(level: str) -> bool:
 def log_debug(message: str, **fields: Any) -> None:
     if not _level_enabled("DEBUG"):
         return
-    extras = ""
     if fields:
-        extras = " " + " ".join([f"{k}={v}" for k, v in fields.items()])
-    print(f"MCP DEBUG > {message}{extras}", file=sys.stderr)
+        logger.debug("%s %s", message, " ".join([f"{k}={v}" for k, v in fields.items()]))
+    else:
+        logger.debug("%s", message)

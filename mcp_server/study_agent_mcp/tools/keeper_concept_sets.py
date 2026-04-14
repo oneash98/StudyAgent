@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import time
 import urllib.parse
 import urllib.request
+from collections import Counter
 from typing import Any, Dict, List
 
 import sqlalchemy as sa
@@ -16,6 +19,7 @@ from study_agent_core.net import rewrite_container_host_url
 
 _CACHE: Dict[str, Any] = {}
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+logger = logging.getLogger("study_agent.mcp.keeper_concept_sets")
 
 
 def _prompt_dir() -> str:
@@ -94,6 +98,79 @@ def _dedupe_concepts(concepts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return deduped
 
 
+def _parse_csv_env(name: str) -> List[str]:
+    raw = (os.getenv(name, "") or "").strip()
+    if not raw:
+        return []
+    return [value.strip() for value in raw.split(",") if value.strip()]
+
+
+def _parse_int_env(name: str) -> int:
+    raw = (os.getenv(name, "") or "").strip()
+    if not raw:
+        return 0
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("invalid_int_env name=%s value=%s", name, raw)
+        return 0
+    return max(value, 0)
+
+
+def _relationship_counts(concepts: List[Dict[str, Any]]) -> Dict[str, int]:
+    counts = Counter()
+    for concept in concepts:
+        relationship = str(concept.get("relationshipId") or "")
+        counts[relationship or "<empty>"] += 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
+def _apply_phoebe_expansion_controls(
+    concepts: List[Dict[str, Any]],
+    requested_relationship_ids: List[str] | None = None,
+) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    deduped = _dedupe_concepts(concepts)
+    requested = [value for value in (requested_relationship_ids or []) if value]
+    configured = _parse_csv_env("PHOEBE_RELATIONSHIP_IDS")
+
+    allowed_relationships: List[str] = []
+    if requested:
+        allowed_relationships = requested
+    elif configured:
+        allowed_relationships = configured
+
+    if allowed_relationships:
+        allowed = set(allowed_relationships)
+        deduped = [concept for concept in deduped if str(concept.get("relationshipId") or "") in allowed]
+
+    max_per_relationship = _parse_int_env("PHOEBE_MAX_CONCEPTS_PER_RELATIONSHIP")
+    if max_per_relationship > 0:
+        seen_per_relationship: Dict[str, int] = {}
+        capped: List[Dict[str, Any]] = []
+        for concept in deduped:
+            relationship = str(concept.get("relationshipId") or "")
+            current = seen_per_relationship.get(relationship, 0)
+            if current >= max_per_relationship:
+                continue
+            seen_per_relationship[relationship] = current + 1
+            capped.append(concept)
+        deduped = capped
+
+    max_total = _parse_int_env("PHOEBE_MAX_CONCEPTS")
+    if max_total > 0:
+        deduped = deduped[:max_total]
+
+    controls = {
+        "requested_relationship_ids": requested,
+        "configured_relationship_ids": configured,
+        "applied_relationship_ids": allowed_relationships,
+        "max_concepts_per_relationship": max_per_relationship,
+        "max_concepts": max_total,
+        "relationship_counts": _relationship_counts(deduped),
+    }
+    return deduped, controls
+
+
 def _load_bundle() -> Dict[str, Any]:
     cached = _CACHE.get("bundle")
     if cached is not None:
@@ -138,21 +215,23 @@ def _safe_identifier(value: str, label: str) -> str:
 
 def _resolve_vocab_engine_name() -> str:
     engine_name = (
-        os.getenv("VOCAB_DB_ENGINE")
-        or os.getenv("ENGINE_VOCAB")
+        os.getenv("OMOP_DB_ENGINE")
         or os.getenv("ENGINE")
         or ""
     ).strip()
     if engine_name:
         return engine_name
-    raise RuntimeError("vocab_db_engine_unconfigured")
+    raise RuntimeError("omop_db_engine_unconfigured")
 
 
 def _resolve_vocab_metadata_provider(explicit: str = "") -> str:
     value = (explicit or os.getenv("VOCAB_METADATA_PROVIDER", "")).strip()
     if value:
         return value
-    if os.getenv("VOCAB_DB_ENGINE") or os.getenv("ENGINE_VOCAB") or os.getenv("ENGINE"):
+    if (
+        os.getenv("OMOP_DB_ENGINE")
+        or os.getenv("ENGINE")
+    ):
         return "db"
     return ""
 
@@ -182,6 +261,14 @@ def _search_standard_via_hecate(
     endpoint = os.getenv("VOCAB_SEARCH_URL", "https://hecate.pantheon-hds.com/api/search_standard")
     endpoint = rewrite_container_host_url(endpoint)
     timeout = int(os.getenv("VOCAB_SEARCH_TIMEOUT", "30"))
+    logger.debug(
+        "vocab_search provider=hecate_api query=%s domains=%s concept_classes=%s limit=%s timeout=%s",
+        query,
+        domains,
+        concept_classes,
+        limit,
+        timeout,
+    )
     params = {
         "q": query,
         "limit": max(int(limit), 1),
@@ -210,6 +297,7 @@ def _search_standard_via_hecate(
             elif isinstance(item, dict):
                 concept_rows.append(item)
     normalized = _dedupe_concepts(concept_rows)
+    logger.debug("vocab_search provider=hecate_api query=%s results=%s", query, len(normalized))
     return {"concepts": normalized, "count": len(normalized), "provider": "hecate_api", "url": endpoint}
 
 
@@ -234,6 +322,14 @@ def _search_standard_via_generic_api(
     endpoint = os.getenv("VOCAB_SEARCH_URL", "http://127.0.0.1:18080/search")
     endpoint = rewrite_container_host_url(endpoint)
     timeout = int(os.getenv("VOCAB_SEARCH_TIMEOUT", "30"))
+    logger.debug(
+        "vocab_search provider=generic_search_api query=%s domains=%s concept_classes=%s limit=%s timeout=%s",
+        query,
+        domains,
+        concept_classes,
+        limit,
+        timeout,
+    )
     query_prefix = os.getenv("VOCAB_SEARCH_QUERY_PREFIX", "")
     query_text = f"{query_prefix}{query}" if query_prefix else query
     request_payload: Dict[str, Any] = {
@@ -263,6 +359,7 @@ def _search_standard_via_generic_api(
 
 
 def _phoebe_via_hecate(concept_ids: List[int], relationship_ids: List[str] | None) -> Dict[str, Any]:
+    started = time.perf_counter()
     timeout = int(os.getenv("PHOEBE_TIMEOUT", "30"))
     endpoint_template = os.getenv(
         "PHOEBE_URL_TEMPLATE",
@@ -271,6 +368,12 @@ def _phoebe_via_hecate(concept_ids: List[int], relationship_ids: List[str] | Non
     endpoint_template = rewrite_container_host_url(endpoint_template)
     relationships = set(relationship_ids or [])
     related: List[Dict[str, Any]] = []
+    logger.debug(
+        "phoebe provider=hecate_api concept_ids=%s relationship_ids=%s timeout=%s",
+        len(concept_ids),
+        relationship_ids,
+        timeout,
+    )
     for concept_id in concept_ids:
         url = endpoint_template.format(concept_id=concept_id)
         payload = _load_http_json(url, timeout=timeout)
@@ -282,18 +385,42 @@ def _phoebe_via_hecate(concept_ids: List[int], relationship_ids: List[str] | Non
             if relationships and concept.get("relationshipId") not in relationships:
                 continue
             related.append(concept)
-    deduped = _dedupe_concepts(related)
-    return {"concepts": deduped, "count": len(deduped), "provider": "hecate_api"}
+    raw_deduped = _dedupe_concepts(related)
+    filtered, controls = _apply_phoebe_expansion_controls(raw_deduped, relationship_ids)
+    logger.debug(
+        "phoebe provider=hecate_api seconds=%.2f raw_results=%s final_results=%s relationships=%s applied_relationship_ids=%s max_per_relationship=%s max_total=%s",
+        time.perf_counter() - started,
+        len(raw_deduped),
+        len(filtered),
+        controls.get("relationship_counts"),
+        controls.get("applied_relationship_ids"),
+        controls.get("max_concepts_per_relationship"),
+        controls.get("max_concepts"),
+    )
+    return {
+        "concepts": filtered,
+        "count": len(filtered),
+        "provider": "hecate_api",
+        "controls": controls,
+        "raw_count": len(raw_deduped),
+    }
 
 
 def _phoebe_via_db(concept_ids: List[int], relationship_ids: List[str] | None) -> Dict[str, Any]:
     if not concept_ids:
         return {"concepts": [], "count": 0, "provider": "db"}
+    started = time.perf_counter()
     engine_name = _resolve_vocab_engine_name()
     schema = _safe_identifier(os.getenv("VOCAB_DATABASE_SCHEMA", "vocabulary"), "vocab_database_schema")
     recommend_table = _safe_identifier(os.getenv("PHOEBE_DB_TABLE", "concept_recommended"), "phoebe_db_table")
     concept_table = _safe_identifier(os.getenv("VOCAB_CONCEPT_TABLE", "concept"), "vocab_concept_table")
     engine = create_engine_with_dependencies(engine_name, future=True)
+    logger.debug(
+        "phoebe provider=db engine=%s concept_ids=%s relationship_ids=%s",
+        engine_name,
+        len(concept_ids),
+        relationship_ids,
+    )
 
     relationship_clause = ""
     params: Dict[str, Any] = {"concept_ids": list(concept_ids)}
@@ -322,8 +449,10 @@ def _phoebe_via_db(concept_ids: List[int], relationship_ids: List[str] | None) -
         """
     ).bindparams(*bindparams)
 
+    query_started = time.perf_counter()
     with engine.connect() as connection:
         rows = connection.execute(sql, params).mappings().all()
+    query_seconds = time.perf_counter() - query_started
 
     concepts = []
     for row in rows:
@@ -339,8 +468,28 @@ def _phoebe_via_db(concept_ids: List[int], relationship_ids: List[str] | None) -
                 "sourceConceptId": row.get("source_concept_id"),
             }
         )
-    deduped = _dedupe_concepts(concepts)
-    return {"concepts": deduped, "count": len(deduped), "provider": "db"}
+    raw_deduped = _dedupe_concepts(concepts)
+    filtered, controls = _apply_phoebe_expansion_controls(raw_deduped, relationship_ids)
+    logger.debug(
+        "phoebe provider=db engine=%s query_seconds=%.2f total_seconds=%.2f rows=%s raw_results=%s final_results=%s relationships=%s applied_relationship_ids=%s max_per_relationship=%s max_total=%s",
+        engine_name,
+        query_seconds,
+        time.perf_counter() - started,
+        len(rows),
+        len(raw_deduped),
+        len(filtered),
+        controls.get("relationship_counts"),
+        controls.get("applied_relationship_ids"),
+        controls.get("max_concepts_per_relationship"),
+        controls.get("max_concepts"),
+    )
+    return {
+        "concepts": filtered,
+        "count": len(filtered),
+        "provider": "db",
+        "controls": controls,
+        "raw_count": len(raw_deduped),
+    }
 
 
 def _fetch_concepts_via_db(
@@ -351,10 +500,19 @@ def _fetch_concepts_via_db(
 ) -> Dict[str, Any]:
     if not concept_ids:
         return {"concepts": [], "count": 0, "provider": "db"}
+    started = time.perf_counter()
     engine_name = _resolve_vocab_engine_name()
     schema = _safe_identifier(os.getenv("VOCAB_DATABASE_SCHEMA", "vocabulary"), "vocab_database_schema")
     concept_table = _safe_identifier(os.getenv("VOCAB_CONCEPT_TABLE", "concept"), "vocab_concept_table")
     engine = create_engine_with_dependencies(engine_name, future=True)
+    logger.debug(
+        "vocab_fetch provider=db engine=%s concept_ids=%s domains=%s concept_classes=%s require_standard=%s",
+        engine_name,
+        len(concept_ids),
+        domains,
+        concept_classes,
+        require_standard,
+    )
 
     conditions = ["concept_id IN :concept_ids"]
     params: Dict[str, Any] = {"concept_ids": list(concept_ids)}
@@ -386,8 +544,10 @@ def _fetch_concepts_via_db(
         """
     ).bindparams(*bindparams)
 
+    query_started = time.perf_counter()
     with engine.connect() as connection:
         rows = connection.execute(sql, params).mappings().all()
+    query_seconds = time.perf_counter() - query_started
 
     concepts = []
     for row in rows:
@@ -402,6 +562,15 @@ def _fetch_concepts_via_db(
             }
         )
     deduped = _dedupe_concepts(concepts)
+    logger.debug(
+        "vocab_fetch provider=db engine=%s query_seconds=%.2f total_seconds=%.2f rows=%s results=%s missing=%s",
+        engine_name,
+        query_seconds,
+        time.perf_counter() - started,
+        len(rows),
+        len(deduped),
+        max(len(concept_ids) - len(deduped), 0),
+    )
     return {"concepts": deduped, "count": len(deduped), "provider": "db"}
 
 

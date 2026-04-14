@@ -333,7 +333,7 @@ def test_phoebe_related_concepts_db_provider(monkeypatch) -> None:
 
     monkeypatch.setattr(keeper_concept_sets, "create_engine_with_dependencies", lambda *args, **kwargs: FakeEngine())
     monkeypatch.setenv("PHOEBE_PROVIDER", "db")
-    monkeypatch.setenv("VOCAB_DB_ENGINE", "postgresql://example")
+    monkeypatch.setenv("OMOP_DB_ENGINE", "postgresql://example")
     monkeypatch.setenv("VOCAB_DATABASE_SCHEMA", "vocabulary")
     result = tools["phoebe_related_concepts"](
         concept_ids=[192671],

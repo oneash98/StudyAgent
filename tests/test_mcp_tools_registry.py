@@ -39,6 +39,8 @@ def test_register_all_tools() -> None:
         "keeper_build_prompt",
         "keeper_parse_response",
         "keeper_concept_set_bundle",
+        "keeper_profile_extract",
+        "keeper_profile_to_rows",
         "vocab_search_standard",
         "phoebe_related_concepts",
         "vocab_filter_standard_concepts",

@@ -1,13 +1,15 @@
+import logging
 import os
-import sys
 
 from mcp.server.fastmcp import FastMCP
 
 from study_agent_mcp.tools import register_all
 from study_agent_mcp.retrieval import index_status
+from study_agent_core.logging_utils import configure_service_logger
 
 mcp = FastMCP("study-agent", host=os.getenv("MCP_HOST", "0.0.0.0"))
 register_all(mcp)
+logger = logging.getLogger("study_agent.mcp")
 
 def _log(level: str, message: str) -> None:
     configured = os.getenv("MCP_LOG_LEVEL", "INFO").upper()
@@ -16,7 +18,14 @@ def _log(level: str, message: str) -> None:
         return
     if levels.get(configured, 20) >= levels["OFF"]:
         return
-    print(f"MCP {level} > {message}", file=sys.stderr)
+    if level in ("WARN", "WARNING"):
+        logger.warning(message)
+    elif level == "ERROR":
+        logger.error(message)
+    elif level == "DEBUG":
+        logger.debug(message)
+    else:
+        logger.info(message)
 
 
 def _preflight() -> None:
@@ -40,6 +49,13 @@ def _preflight() -> None:
 
 
 def main() -> None:
+    configure_service_logger(
+        "MCP",
+        "study_agent.mcp",
+        default_level="INFO",
+        stream="stderr",
+        default_filename="study-agent-mcp.log",
+    )
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
     _preflight()
 

@@ -108,6 +108,15 @@ It currently supports:
 - air-gapped `generic_search_api` vocabulary search
 - DB-backed concept enrichment/filtering and DB-backed Phoebe recommendations via `concept_recommended`
 
+### `keeper_profiles_generate` flow (ACP + MCP, deterministic only)
+
+1. ACP calls MCP `keeper_profile_extract` to query OMOP CDM using approved Keeper concept sets.
+2. MCP builds Keeper-style long-form profile records with no LLM involvement.
+3. ACP calls MCP `keeper_profile_to_rows` to convert those records into review rows.
+
+This flow does not call the LLM and is the bridge between approved concept sets and
+sanitized `phenotype_validation_review`.
+
 ### `phenotype_recommendation_advice` flow (ACP + MCP + LLM)
 
 1. ACP calls MCP `phenotype_recommendation_advice` for advisory prompt assets and schema.
@@ -142,12 +151,16 @@ export EMBED_MODEL=<a text embedding model>
 export EMBED_URL="<URL BASE>/v1/embeddings"
 export PHENOTYPE_INDEX_DIR="<ABSOLUTE PATH TO phenotype_index>"
 export STUDY_AGENT_MCP_CWD="<REPO ROOT (optional, for stable relative paths)>"
+export STUDY_AGENT_LOG_DIR="/tmp/study-agent-logs"
+export ACP_LOG_LEVEL=DEBUG
+export MCP_LOG_LEVEL=DEBUG
 export STUDY_AGENT_HOST=127.0.0.1
 export STUDY_AGENT_PORT=8765
 export STUDY_AGENT_MCP_COMMAND=study-agent-mcp
 export STUDY_AGENT_MCP_ARGS=""
 study-agent-acp
 ```
+Built-in rotating log files will be created in `STUDY_AGENT_LOG_DIR` as `study-agent-acp.log` and `study-agent-mcp.log`.
 Note: This starts MCP via stdio. If you use MCP over HTTP, do not set `STUDY_AGENT_MCP_COMMAND`.
 Note: Prefer stopping the ACP process (SIGINT/SIGTERM) so the MCP subprocess is closed cleanly. Killing the MCP directly can leave defunct processes.
 Note: ACP uses a threaded HTTP server by default. Set `STUDY_AGENT_THREADING=0` to disable threading.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import socket
@@ -14,6 +15,7 @@ from study_agent_core.net import rewrite_container_host_url
 
 _JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE | re.MULTILINE)
 _REASONING_PREFIX_RE = re.compile(r"^\s*(?:<[^>]+>\s*)+", re.DOTALL)
+logger = logging.getLogger("study_agent.acp.llm")
 
 
 @dataclass
@@ -357,7 +359,7 @@ def _extract_responses_output_text(data: Dict[str, Any]) -> Optional[str]:
 
 
 def _log_llm(message: str) -> None:
-    print(f"LLM {message}")
+    logger.info(message)
 
 
 def llm_result_payload(result: Optional[LLMCallResult]) -> Optional[Dict[str, Any]]:

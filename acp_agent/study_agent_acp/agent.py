@@ -1,10 +1,13 @@
+import logging
 import os
+import time
 from typing import Any, Dict, List, Optional, Protocol
 
 from study_agent_core.models import (
     CohortLintInput,
     ConceptSetDiffInput,
     KeeperConceptSetsGenerateInput,
+    KeeperProfilesGenerateInput,
     PhenotypeIntentSplitInput,
     PhenotypeImprovementsInput,
     PhenotypeRecommendationAdviceInput,
@@ -31,6 +34,8 @@ from .llm_client import (
     coerce_llm_call_result,
     llm_result_payload,
 )
+
+logger = logging.getLogger("study_agent.acp.agent")
 
 
 class MCPClient(Protocol):
@@ -69,6 +74,7 @@ class StudyAgent:
             "phenotype_improvements": PhenotypeImprovementsInput.model_json_schema(),
             "phenotype_intent_split": PhenotypeIntentSplitInput.model_json_schema(),
             "keeper_concept_sets_generate": KeeperConceptSetsGenerateInput.model_json_schema(),
+            "keeper_profiles_generate": KeeperProfilesGenerateInput.model_json_schema(),
         }
 
     def _debug_enabled(self) -> bool:
@@ -76,7 +82,7 @@ class StudyAgent:
 
     def _log_debug(self, message: str) -> None:
         if self._debug_enabled():
-            print(f"ACP DEBUG > {message}")
+            logger.debug(message)
 
     def _llm_diagnostics(self, result: Optional[LLMCallResult]) -> Dict[str, Any]:
         if result is None:
@@ -101,6 +107,24 @@ class StudyAgent:
             diagnostics["llm_raw_response"] = result.raw_response
             diagnostics["llm_content_text"] = result.content_text
         return diagnostics
+
+    def _timed_tool_call(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        started = time.perf_counter()
+        result = self.call_tool(name=name, arguments=arguments)
+        duration = time.perf_counter() - started
+        full_result = result.get("full_result") or {}
+        count = full_result.get("count")
+        if count is None and isinstance(full_result.get("concepts"), list):
+            count = len(full_result.get("concepts") or [])
+        logger.debug(
+            "keeper tool_call name=%s seconds=%.2f status=%s result_error=%s count=%s",
+            name,
+            duration,
+            result.get("status"),
+            full_result.get("error"),
+            count,
+        )
+        return result
 
     def _fallback_reason_for_llm(self, result: Optional[LLMCallResult]) -> str:
         if result is None:
@@ -688,7 +712,7 @@ class StudyAgent:
         if self._mcp_client is None:
             return {"status": "error", "error": "MCP client unavailable"}
 
-        bundle_result = self.call_tool(
+        bundle_result = self._timed_tool_call(
             name="keeper_concept_set_bundle",
             arguments={"phenotype": phenotype},
         )
@@ -721,6 +745,7 @@ class StudyAgent:
 
         for entry in domain_entries:
             domain_key = str(entry.get("parameterName") or "")
+            logger.info("keeper_concept_sets_generate start domain=%s target=%s", domain_key, "Disease of interest")
             primary = self._run_keeper_concept_set_domain(
                 phenotype=phenotype,
                 domain_key=domain_key,
@@ -736,6 +761,12 @@ class StudyAgent:
             concept_sets.extend(primary.get("concepts", []))
             domain_outputs.append(primary.get("domain_output", {}))
             diagnostics["domain_runs"].append(primary.get("diagnostics", {}))
+            logger.info(
+                "keeper_concept_sets_generate end domain=%s target=%s concepts=%s",
+                domain_key,
+                "Disease of interest",
+                len(primary.get("concepts", []) or []),
+            )
 
             if domain_key == "alternativeDiagnosis":
                 alternative_diagnosis_terms = primary.get("terms", []) or []
@@ -743,6 +774,7 @@ class StudyAgent:
 
             if alternative_diagnosis_terms:
                 alt_query = "\n- " + "\n- ".join(alternative_diagnosis_terms)
+                logger.info("keeper_concept_sets_generate start domain=%s target=%s", domain_key, "Alternative diagnoses")
                 secondary = self._run_keeper_concept_set_domain(
                     phenotype=phenotype,
                     domain_key=domain_key,
@@ -758,6 +790,12 @@ class StudyAgent:
                 concept_sets.extend(secondary.get("concepts", []))
                 domain_outputs.append(secondary.get("domain_output", {}))
                 diagnostics["domain_runs"].append(secondary.get("diagnostics", {}))
+                logger.info(
+                    "keeper_concept_sets_generate end domain=%s target=%s concepts=%s",
+                    domain_key,
+                    "Alternative diagnoses",
+                    len(secondary.get("concepts", []) or []),
+                )
 
         result: Dict[str, Any] = {
             "status": "ok",
@@ -771,6 +809,83 @@ class StudyAgent:
             result["diagnostics"] = diagnostics
         return result
 
+    def run_keeper_profiles_generate_flow(
+        self,
+        cohort_database_schema: str,
+        cohort_table: str,
+        cohort_definition_id: int,
+        cdm_database_schema: str = "",
+        sample_size: int = 20,
+        person_ids: Optional[List[str]] = None,
+        keeper_concept_sets: Optional[List[Dict[str, Any]]] = None,
+        phenotype_name: str = "",
+        use_descendants: bool = True,
+        remove_pii: bool = True,
+    ) -> Dict[str, Any]:
+        if self._mcp_client is None:
+            return {"status": "error", "error": "MCP client unavailable"}
+        if not cohort_database_schema:
+            return {"status": "error", "error": "missing cohort_database_schema"}
+        if not cohort_table:
+            return {"status": "error", "error": "missing cohort_table"}
+        if not cohort_definition_id:
+            return {"status": "error", "error": "missing cohort_definition_id"}
+        if not cdm_database_schema:
+            return {"status": "error", "error": "missing cdm_database_schema"}
+        if not keeper_concept_sets:
+            return {"status": "error", "error": "missing keeper_concept_sets"}
+
+        extract_result = self.call_tool(
+            name="keeper_profile_extract",
+            arguments={
+                "cdm_database_schema": cdm_database_schema,
+                "cohort_database_schema": cohort_database_schema,
+                "cohort_table": cohort_table,
+                "cohort_definition_id": int(cohort_definition_id),
+                "keeper_concept_sets": keeper_concept_sets,
+                "sample_size": int(sample_size),
+                "person_ids": person_ids or [],
+                "phenotype_name": phenotype_name,
+                "use_descendants": bool(use_descendants),
+                "remove_pii": bool(remove_pii),
+            },
+        )
+        extract_full = extract_result.get("full_result") or {}
+        if extract_result.get("status") != "ok" or extract_full.get("error"):
+            return {
+                "status": "error",
+                "error": "keeper_profile_extract_failed",
+                "details": extract_result,
+            }
+
+        rows_result = self.call_tool(
+            name="keeper_profile_to_rows",
+            arguments={
+                "profile_records": extract_full.get("profile_records") or [],
+                "remove_pii": bool(remove_pii),
+            },
+        )
+        rows_full = rows_result.get("full_result") or {}
+        if rows_result.get("status") != "ok" or rows_full.get("error"):
+            return {
+                "status": "error",
+                "error": "keeper_profile_to_rows_failed",
+                "details": rows_result,
+            }
+
+        return {
+            "status": "ok",
+            "phenotype_name": phenotype_name,
+            "rows": rows_full.get("rows") or [],
+            "row_count": int(rows_full.get("row_count") or 0),
+            "sample_size_requested": int(extract_full.get("sample_size_requested") or sample_size),
+            "sample_size_returned": int(extract_full.get("sample_size_returned") or 0),
+            "diagnostics": {
+                "record_count": int(extract_full.get("record_count") or 0),
+                "sampling_mode": extract_full.get("sampling_mode") or "",
+            },
+        }
+
     def _run_keeper_concept_set_domain(
         self,
         phenotype: str,
@@ -782,7 +897,15 @@ class StudyAgent:
         candidate_limit: int,
         min_record_count: int,
     ) -> Dict[str, Any]:
-        bundle_result = self.call_tool(
+        logger.debug(
+            "keeper domain start phenotype=%s domain=%s target=%s candidate_limit=%s min_record_count=%s",
+            phenotype,
+            domain_key,
+            target,
+            candidate_limit,
+            min_record_count,
+        )
+        bundle_result = self._timed_tool_call(
             name="keeper_concept_set_bundle",
             arguments={"phenotype": phenotype, "domain_key": domain_key, "target": target},
         )
@@ -822,11 +945,12 @@ class StudyAgent:
             }
         terms_payload = llm_result_payload(terms_result) or {}
         terms = [str(term).strip() for term in (terms_payload.get("terms") or []) if str(term).strip()]
+        logger.debug("keeper domain=%s target=%s generated_terms=%s", domain_key, target, len(terms))
 
         search_candidates: List[Dict[str, Any]] = []
         search_errors: List[Dict[str, Any]] = []
         for term in terms:
-            search_result = self.call_tool(
+            search_result = self._timed_tool_call(
                 name="vocab_search_standard",
                 arguments={
                     "query": term,
@@ -859,7 +983,15 @@ class StudyAgent:
             for concept in search_candidates
             if concept.get("recordCount") is None or int(concept.get("recordCount") or 0) >= min_record_count
         ]
-        standard_result = self.call_tool(
+        logger.debug(
+            "keeper domain=%s target=%s search_candidates=%s filtered_candidates=%s search_errors=%s",
+            domain_key,
+            target,
+            len(search_candidates),
+            len(filtered_candidates),
+            len(search_errors),
+        )
+        standard_result = self._timed_tool_call(
             name="vocab_filter_standard_concepts",
             arguments={
                 "concepts": filtered_candidates,
@@ -878,6 +1010,7 @@ class StudyAgent:
                 "details": standard_result,
             }
         candidate_concepts = self._dedupe_concepts(standard_full.get("concepts") or [])
+        logger.debug("keeper domain=%s target=%s standard_candidates=%s", domain_key, target, len(candidate_concepts))
 
         filter_prompt = build_keeper_concept_set_prompt(
             overview=bundle_full.get("overview", ""),
@@ -904,7 +1037,7 @@ class StudyAgent:
                 "diagnostics": self._llm_diagnostics(filter_result),
             }
 
-        selected_result = self.call_tool(
+        selected_result = self._timed_tool_call(
             name="vocab_fetch_concepts",
             arguments={
                 "concept_ids": selected_ids,
@@ -922,8 +1055,9 @@ class StudyAgent:
                 "details": selected_result,
             }
         selected_concepts = self._dedupe_concepts(selected_full.get("concepts") or [])
+        logger.debug("keeper domain=%s target=%s selected_initial=%s", domain_key, target, len(selected_concepts))
 
-        pruned_initial = self.call_tool(
+        pruned_initial = self._timed_tool_call(
             name="vocab_remove_descendants",
             arguments={"concepts": selected_concepts},
         )
@@ -937,8 +1071,14 @@ class StudyAgent:
                 "details": pruned_initial,
             }
         concepts_after_first_prune = self._dedupe_concepts(pruned_initial_full.get("concepts") or [])
+        logger.debug(
+            "keeper domain=%s target=%s after_first_prune=%s",
+            domain_key,
+            target,
+            len(concepts_after_first_prune),
+        )
 
-        phoebe_result = self.call_tool(
+        phoebe_result = self._timed_tool_call(
             name="phoebe_related_concepts",
             arguments={
                 "concept_ids": [concept.get("conceptId") for concept in concepts_after_first_prune if concept.get("conceptId")],
@@ -956,7 +1096,14 @@ class StudyAgent:
             }
         related_concepts = phoebe_full.get("concepts") or []
         if not phoebe_full.get("error"):
-            filtered_related = self.call_tool(
+            logger.debug(
+                "keeper domain=%s target=%s phoebe_raw_related=%s phoebe_provider=%s",
+                domain_key,
+                target,
+                len(related_concepts),
+                phoebe_full.get("provider") or phoebe_provider or "",
+            )
+            filtered_related = self._timed_tool_call(
                 name="vocab_filter_standard_concepts",
                 arguments={
                     "concepts": related_concepts,
@@ -974,15 +1121,24 @@ class StudyAgent:
                     "target": target,
                     "details": filtered_related,
                 }
+            filtered_related_concepts = filtered_related_full.get("concepts") or []
             related_concepts = self._dedupe_concepts([
                 concept
-                for concept in (filtered_related_full.get("concepts") or [])
+                for concept in filtered_related_concepts
                 if concept.get("recordCount") is None or int(concept.get("recordCount") or 0) >= min_record_count
             ])
+            logger.debug(
+                "keeper domain=%s target=%s phoebe_standard_related=%s phoebe_after_record_count=%s",
+                domain_key,
+                target,
+                len(filtered_related_concepts),
+                len(related_concepts),
+            )
         else:
             related_concepts = []
+        logger.debug("keeper domain=%s target=%s related_concepts=%s", domain_key, target, len(related_concepts))
 
-        merged_result = self.call_tool(
+        merged_result = self._timed_tool_call(
             name="vocab_add_nonchildren",
             arguments={"concepts": concepts_after_first_prune, "new_concepts": related_concepts},
         )
@@ -996,6 +1152,7 @@ class StudyAgent:
                 "details": merged_result,
             }
         final_candidates = self._dedupe_concepts(merged_full.get("concepts") or [])
+        logger.debug("keeper domain=%s target=%s merged_candidates=%s", domain_key, target, len(final_candidates))
 
         second_filter_prompt = build_keeper_concept_set_prompt(
             overview=bundle_full.get("overview", ""),
@@ -1023,7 +1180,7 @@ class StudyAgent:
                 "diagnostics": self._llm_diagnostics(second_filter_result),
             }
 
-        final_fetch = self.call_tool(
+        final_fetch = self._timed_tool_call(
             name="vocab_fetch_concepts",
             arguments={
                 "concept_ids": final_ids,
@@ -1040,7 +1197,7 @@ class StudyAgent:
                 "target": target,
                 "details": final_fetch,
             }
-        final_pruned = self.call_tool(
+        final_pruned = self._timed_tool_call(
             name="vocab_remove_descendants",
             arguments={"concepts": final_fetch_full.get("concepts") or []},
         )
@@ -1059,6 +1216,13 @@ class StudyAgent:
             enriched["conceptSetName"] = domain_key
             enriched["target"] = target
             final_concepts.append(enriched)
+        logger.info(
+            "keeper domain complete phenotype=%s domain=%s target=%s final_concepts=%s",
+            phenotype,
+            domain_key,
+            target,
+            len(final_concepts),
+        )
 
         diagnostics = {
             "domain_key": domain_key,

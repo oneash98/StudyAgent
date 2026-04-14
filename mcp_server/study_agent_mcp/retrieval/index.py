@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import pickle
@@ -15,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from study_agent_core.net import rewrite_container_host_url
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+logger = logging.getLogger("study_agent.mcp.retrieval")
 
 
 def _tokenize(text: str) -> List[str]:
@@ -83,9 +85,13 @@ class EmbeddingClient:
             raise RuntimeError(f"Embedding request failed: {exc}") from exc
         duration = time.time() - start
         if self._debug_enabled():
-            print(
-                f"EMBED DEBUG > url={self.url} model={self.model} timeout={self.timeout} "
-                f"texts={len(texts)} seconds={duration:.2f}"
+            logger.debug(
+                "embed url=%s model=%s timeout=%s texts=%s seconds=%.2f",
+                self.url,
+                self.model,
+                self.timeout,
+                len(texts),
+                duration,
             )
         try:
             data = json.loads(raw)

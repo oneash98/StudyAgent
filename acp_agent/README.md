@@ -5,6 +5,11 @@ Orchestrates user interaction and calls MCP tools. No direct data plane access u
 
 - `STUDY_AGENT_HOST` (default `127.0.0.1`)
 - `STUDY_AGENT_PORT` (default `8765`)
+- `STUDY_AGENT_LOG_DIR` (optional; when set, ACP/MCP write rotating log files in that directory)
+- `STUDY_AGENT_LOG_MAX_BYTES` (default `10485760`)
+- `STUDY_AGENT_LOG_BACKUP_COUNT` (default `5`)
+- `ACP_LOG_LEVEL` (default `INFO`)
+- `ACP_LOG_FILE` (optional explicit ACP log path; overrides `STUDY_AGENT_LOG_DIR`)
 - Shutdown: Prefer stopping the ACP process (SIGINT/SIGTERM) so the MCP subprocess is closed cleanly. Killing the MCP directly can leave defunct processes.
 
 ## LLM Configuration (OpenAI-compatible)
@@ -16,6 +21,9 @@ Set these environment variables to enable LLM calls from ACP:
 - `LLM_MODEL` (default `agentstudyassistant`)
 - `LLM_TIMEOUT` (default `300`)
 - `LLM_LOG` (default `0`)
+- `LLM_LOG_PROMPT` (default `0`)
+- `LLM_LOG_RESPONSE` (default `0`)
+- `LLM_LOG_JSON` (default `0`)
 - `LLM_DRY_RUN` (default `0`)
 - `LLM_USE_RESPONSES` (default `0`, use OpenAI Responses API payload/parse instead of Chat Completions; unrelated to MCP tool use)
 - `LLM_CANDIDATE_LIMIT` (default `5`)

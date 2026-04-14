@@ -165,6 +165,46 @@ class StubMCPClient:
                     {"parameterName": "symptoms"},
                 ],
             }
+        if name == "keeper_profile_extract":
+            return {
+                "profile_records": [
+                    {
+                        "generatedId": "1",
+                        "category": "phenotype",
+                        "conceptName": "GI bleed",
+                        "startDay": 0,
+                        "endDay": 0,
+                        "target": "Other",
+                        "extraData": "",
+                    },
+                    {
+                        "generatedId": "1",
+                        "category": "age",
+                        "conceptName": "44",
+                        "startDay": 0,
+                        "endDay": 0,
+                        "target": "Disease of interest",
+                        "extraData": "",
+                    },
+                ],
+                "record_count": 2,
+                "sample_size_requested": 2,
+                "sample_size_returned": 1,
+                "sampling_mode": "ordered_head",
+            }
+        if name == "keeper_profile_to_rows":
+            return {
+                "rows": [
+                    {
+                        "generatedId": "1",
+                        "phenotype": "GI bleed",
+                        "age": "44",
+                        "gender": "Male",
+                        "presentation": "",
+                    }
+                ],
+                "row_count": 1,
+            }
         if name == "vocab_search_standard":
             term = arguments["query"]
             if "Mallory" in term:
@@ -375,6 +415,25 @@ def test_flow_keeper_concept_sets_generate_salvages_concepts_array_schema(monkey
     run = result["diagnostics"]["domain_runs"][0]
     assert run["llm_filter_initial_salvage_mode"] == "concepts_array"
     assert run["llm_filter_final_salvage_mode"] == "concepts_array"
+
+
+@pytest.mark.acp
+def test_flow_keeper_profiles_generate():
+    agent = StudyAgent(mcp_client=StubMCPClient())
+    result = agent.run_keeper_profiles_generate_flow(
+        cohort_database_schema="results",
+        cohort_table="cohort",
+        cohort_definition_id=123,
+        cdm_database_schema="cdm",
+        keeper_concept_sets=[{"conceptId": 100, "conceptName": "GI bleed", "vocabularyId": "SNOMED", "conceptSetName": "doi", "target": "Disease of interest"}],
+        sample_size=2,
+        phenotype_name="GI bleed",
+        remove_pii=True,
+    )
+    assert result["status"] == "ok"
+    assert result["row_count"] == 1
+    assert result["sample_size_requested"] == 2
+    assert result["sample_size_returned"] == 1
 
 
 @pytest.mark.acp

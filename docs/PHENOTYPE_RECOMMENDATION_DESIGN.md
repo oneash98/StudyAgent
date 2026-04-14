@@ -110,7 +110,7 @@ Candidate selection:
 8. `LLM_API_KEY` (required for LLM calls)
 9. `LLM_MODEL` (default `agentstudyassistant`)
 10. `LLM_TIMEOUT` (default `180`)
-11. `LLM_LOG` (default `0`) enables verbose LLM logging to ACP stdout (config, prompt, raw response).
+11. `LLM_LOG` (default `0`) enables verbose LLM logging in the ACP logger (config, prompt, raw response).
 12. `LLM_DRY_RUN` (default `0`)
 13. `LLM_USE_RESPONSES` (default `0`) selects OpenAI Responses API format instead of Chat Completions. It does not affect MCP tool use.
 14. `LLM_CANDIDATE_LIMIT` (default `10`)
@@ -120,7 +120,7 @@ Candidate selection:
 18. `STUDY_AGENT_HOST` (default `127.0.0.1`)
 19. `STUDY_AGENT_PORT` (default `8765`)
 20. `STUDY_AGENT_MCP_CWD` (optional) working directory passed to MCP subprocesses. Use for stable relative paths.
-21. `MCP_LOG_LEVEL` (default `INFO`) controls MCP stderr logging (`DEBUG|INFO|WARN|ERROR|OFF`).
+21. `MCP_LOG_LEVEL` (default `INFO`) controls MCP logger verbosity (`DEBUG|INFO|WARN|ERROR|OFF`).
 22. `STUDY_AGENT_MCP_URL` (optional) HTTP MCP endpoint. When set, ACP uses HTTP and ignores `STUDY_AGENT_MCP_COMMAND`.
 23. `STUDY_AGENT_MCP_TOKEN` (optional) bearer token passed to MCP over HTTP.
 24. `STUDY_AGENT_MCP_TIMEOUT` (default `30`) HTTP MCP request timeout in seconds.
