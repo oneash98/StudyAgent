@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import re
@@ -12,6 +13,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
+
+try:
+    import readline
+except ImportError:  # pragma: no cover
+    readline = None
 
 
 def _repo_root() -> Path:
@@ -196,6 +202,7 @@ class StudyAgentDemoShell:
     def __post_init__(self) -> None:
         self.session.output_dir.mkdir(parents=True, exist_ok=True)
         self.parsers = self._build_parsers()
+        self._configure_line_editing()
 
     def run(self) -> int:
         print(_read_logo())
@@ -363,6 +370,29 @@ class StudyAgentDemoShell:
         print("/services")
         print("/help")
         print("/quit")
+
+    def _configure_line_editing(self) -> None:
+        if readline is None:
+            return
+        history_path = self.session.output_dir / ".study-agent-demo-history"
+        try:
+            readline.parse_and_bind("tab: complete")
+            readline.parse_and_bind("set editing-mode emacs")
+        except Exception:
+            pass
+        try:
+            if history_path.exists():
+                readline.read_history_file(str(history_path))
+        except Exception:
+            pass
+
+        def _save_history() -> None:
+            try:
+                readline.write_history_file(str(history_path))
+            except Exception:
+                pass
+
+        atexit.register(_save_history)
 
     def _handle_services(self) -> None:
         payload = self.client.get("/services")
