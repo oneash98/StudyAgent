@@ -1,4 +1,5 @@
 demo-strategus-cohort-incidence/*
+demo-strategus-cohort-methods/*
 conda-pip-env-github-workflow.yml
 *sandbox*
 *.doit.db*
@@ -9,6 +10,8 @@ docs/study-agent-development-phenotype-suggestion-tool-architecture-plan.pdf
 demo/417_Acute_gastrointestinal_bleeding_events.json
 demo/299_Acute_gastrointestinal_bleeding_or_perforation_events.json
 demo/1197_Acute_gastrointestinal_bleeding.json
+.codex
+test.R
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
