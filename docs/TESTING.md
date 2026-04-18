@@ -392,7 +392,94 @@ curl -s -X POST http://127.0.0.1:8765/flows/phenotype_validation_review \
   -d '{"disease_name":"Gastrointestinal bleeding","keeper_row":{"age":44,"gender":"Male","visitContext":"Inpatient Visit","presentation":"Gastrointestinal hemorrhage","priorDisease":"Peptic ulcer","symptoms":"","comorbidities":"","priorDrugs":"celecoxib","priorTreatmentProcedures":"","diagnosticProcedures":"","measurements":"","alternativeDiagnosis":"","afterDisease":"","afterDrugs":"Naproxen","afterTreatmentProcedures":""}}'
 ```
 
-## Keeper concept sets generate
+
+### Case causal review (review a canonical row from a safety surveillance system):
+
+Important:
+- `review_row` must already be in the canonical observed-item format expected by Study Agent
+- structured candidates are limited to observed items present in the supplied row
+- `source_type` must currently be `signal_validation` or `patient_profile`
+- sanitization is fail-closed before any LLM call
+
+Positive test path using `signal_validation` with `observed_items`:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/flows/case_causal_review   -H 'Content-Type: application/json'   -d '{
+    "adverse_event_name": "Gastrointestinal bleeding",
+    "source_type": "signal_validation",
+    "allowed_domains": ["drug_exposures", "labs"],
+    "review_row": {
+      "case_summary": "Bleeding event after anticoagulant exposure with supratherapeutic INR.",
+      "observed_items": [
+        {
+          "domain": "drug_exposures",
+          "label": "Warfarin",
+          "source_record_id": "drug-1",
+          "why_observed": "Active exposure before the adverse event"
+        },
+        {
+          "domain": "labs",
+          "label": "INR 4.2",
+          "source_record_id": "lab-1",
+          "why_observed": "Measured close to the adverse event"
+        }
+      ]
+    }
+  }' | python -m json.tool
+```
+
+Positive test path using `patient_profile` with `items_by_domain`:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/flows/case_causal_review   -H 'Content-Type: application/json'   -d '{
+    "adverse_event_name": "Hepatic failure",
+    "source_type": "patient_profile",
+    "allowed_domains": ["drug_exposures", "conditions"],
+    "review_row": {
+      "case_context": {
+        "setting": "outpatient",
+        "summary": "Progressive liver injury after recent medication changes."
+      },
+      "items_by_domain": {
+        "drug_exposures": [
+          {
+            "label": "Valproate",
+            "source_record_id": "drug-17",
+            "detail": "Recent exposure"
+          }
+        ],
+        "conditions": [
+          {
+            "label": "Chronic liver disease",
+            "source_record_id": "cond-3",
+            "detail": "Pre-existing condition"
+          }
+        ]
+      }
+    }
+  }' | python -m json.tool
+```
+
+Validation check for unsupported `source_type`:
+
+```bash
+curl -i -s -X POST http://127.0.0.1:8765/flows/case_causal_review   -H 'Content-Type: application/json'   -d '{
+    "adverse_event_name": "Gastrointestinal bleeding",
+    "source_type": "faers_raw",
+    "review_row": {
+      "observed_items": [
+        {
+          "domain": "drug_exposures",
+          "label": "Warfarin",
+          "source_record_id": "drug-1"
+        }
+      ]
+    }
+  }'
+```
+Expected result: HTTP 400 with `source_type must be signal_validation or patient_profile`.
+
+### Keeper concept sets generate
 
 This flow is now usable end to end.
 
