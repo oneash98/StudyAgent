@@ -2,59 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from typing import Any, Dict
 
 from ._common import with_meta
+from ._review_row import has_phi_keys, phi_detected, sanitize_keeper_row
 
 _CACHE: Dict[str, Dict[str, Any]] = {}
-
-_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-_URL_RE = re.compile(r"https?://\S+")
-_IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-_PHONE_RE = re.compile(r"\b\+?\d{1,2}[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b")
-_DATE_RE = re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{4}-\d{1,2}-\d{1,2}\b")
-_ZIP_RE = re.compile(r"\b\d{5}(?:-\d{4})?\b")
-_DAY_RE = re.compile(r"\(day[^)]*\)", re.IGNORECASE)
-
-_PHI_KEYS = {
-    "name",
-    "full_name",
-    "first_name",
-    "last_name",
-    "middle_name",
-    "address",
-    "street",
-    "city",
-    "county",
-    "zip",
-    "zipcode",
-    "email",
-    "phone",
-    "fax",
-    "ssn",
-    "social_security",
-    "medical_record_number",
-    "mrn",
-    "account_number",
-    "health_plan_beneficiary_number",
-    "certificate_number",
-    "license_number",
-    "vehicle_id",
-    "device_id",
-    "url",
-    "ip_address",
-    "biometric_id",
-    "photo",
-    "personid",
-    "person_id",
-    "visit_id",
-    "visitid",
-    "birth_date",
-    "admission_date",
-    "discharge_date",
-    "death_date",
-}
 
 
 def _prompt_dir() -> str:
@@ -73,73 +26,6 @@ def _load_json(path: str) -> Dict[str, Any]:
 
 def _render_template(template: str, values: Dict[str, Any]) -> str:
     return template.format_map({key: str(value) for key, value in values.items()})
-
-
-def _bucket_age(age: Any) -> str:
-    try:
-        age_val = float(age)
-    except (TypeError, ValueError):
-        return "unknown"
-    if age_val >= 85:
-        return "85+"
-    bucket = int(age_val // 5) * 5
-    return f"{bucket}-{bucket+4}"
-
-
-def _sanitize_text(text: str) -> str:
-    if not text:
-        return "None"
-    text = _EMAIL_RE.sub("[REDACTED_EMAIL]", text)
-    text = _URL_RE.sub("[REDACTED_URL]", text)
-    text = _IP_RE.sub("[REDACTED_IP]", text)
-    text = _PHONE_RE.sub("[REDACTED_PHONE]", text)
-    text = _DATE_RE.sub("[REDACTED_DATE]", text)
-    text = _ZIP_RE.sub("[REDACTED_ZIP]", text)
-    text = _DAY_RE.sub("(prior)", text)
-    return text
-
-
-def _phi_detected(text: str) -> bool:
-    if not text:
-        return False
-    return bool(
-        _EMAIL_RE.search(text)
-        or _URL_RE.search(text)
-        or _IP_RE.search(text)
-        or _PHONE_RE.search(text)
-        or _DATE_RE.search(text)
-    )
-
-
-def _has_phi_keys(row: Dict[str, Any]) -> bool:
-    for key, value in row.items():
-        if key is None:
-            continue
-        key_norm = str(key).lower()
-        if key_norm in _PHI_KEYS and value not in (None, "", [], {}):
-            return True
-    return False
-
-
-def _sanitize_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    sanitized = {}
-    sanitized["age_bucket"] = _bucket_age(row.get("age"))
-    sanitized["gender"] = _sanitize_text(str(row.get("gender") or "unknown"))
-    sanitized["visit_context"] = _sanitize_text(str(row.get("visitContext") or "unknown"))
-    sanitized["presentation"] = _sanitize_text(str(row.get("presentation") or "None"))
-    sanitized["prior_disease"] = _sanitize_text(str(row.get("priorDisease") or "None"))
-    sanitized["symptoms"] = _sanitize_text(str(row.get("symptoms") or "None"))
-    sanitized["comorbidities"] = _sanitize_text(str(row.get("comorbidities") or "None"))
-    sanitized["prior_drugs"] = _sanitize_text(str(row.get("priorDrugs") or "None"))
-    sanitized["prior_treatments"] = _sanitize_text(str(row.get("priorTreatmentProcedures") or "None"))
-    sanitized["diagnostic_procedures"] = _sanitize_text(str(row.get("diagnosticProcedures") or "None"))
-    sanitized["measurements"] = _sanitize_text(str(row.get("measurements") or "None"))
-    sanitized["alternative_diagnosis"] = _sanitize_text(str(row.get("alternativeDiagnosis") or "None"))
-    sanitized["after_disease"] = _sanitize_text(str(row.get("afterDisease") or "None"))
-    sanitized["after_drugs"] = _sanitize_text(str(row.get("afterDrugs") or "None"))
-    sanitized["after_treatments"] = _sanitize_text(str(row.get("afterTreatmentProcedures") or "None"))
-    sanitized["death"] = _sanitize_text(str(row.get("death") or "None"))
-    return sanitized
 
 
 def _build_prompt(template: str, sanitized: Dict[str, Any]) -> str:
@@ -198,12 +84,12 @@ def register(mcp: object) -> None:
         if not isinstance(row, dict):
             return with_meta({"error": "row must be a dict"}, "keeper_sanitize_row")
         redaction_report = {
-            "phi_keys_present": _has_phi_keys(row),
-            "phi_patterns_present": _phi_detected(json.dumps(row, ensure_ascii=True)),
+            "phi_keys_present": has_phi_keys(row),
+            "phi_patterns_present": phi_detected(json.dumps(row, ensure_ascii=True)),
         }
-        sanitized = _sanitize_row(row)
+        sanitized = sanitize_keeper_row(row)
         sanitized_text = json.dumps(sanitized, ensure_ascii=True)
-        if _phi_detected(sanitized_text):
+        if phi_detected(sanitized_text):
             return with_meta({"error": "phi_detected"}, "keeper_sanitize_row")
         return with_meta(
             {"sanitized_row": sanitized, "redaction_report": redaction_report},

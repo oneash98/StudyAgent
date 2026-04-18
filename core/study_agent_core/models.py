@@ -44,6 +44,23 @@ class PhenotypeValidationReviewInput(BaseModel):
     llm_result: Optional[Dict[str, Any]] = None
 
 
+class CaseCausalReviewInput(BaseModel):
+    adverse_event_name: str = ""
+    review_row: Dict[str, Any] = Field(default_factory=dict)
+    source_type: str = ""
+    allowed_domains: List[str] = Field(default_factory=list)
+    llm_result: Optional[Dict[str, Any]] = None
+
+
+class CaseCausalReviewCandidate(BaseModel):
+    domain: str
+    label: str
+    source_record_id: str
+    why_it_may_contribute: str
+    confidence: str
+    rank: int
+
+
 KeeperConceptSetDomainKey = Literal[
     "doi",
     "alternativeDiagnosis",
@@ -227,6 +244,14 @@ class PhenotypeValidationReviewOutput(BaseModel):
     label: str
     rationale: str
     mode: str
+
+
+class CaseCausalReviewOutput(BaseModel):
+    flow_name: str
+    mode: str
+    candidates_by_domain: Dict[str, List[CaseCausalReviewCandidate]] = Field(default_factory=dict)
+    narrative: str
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
 
 
 class LLMAuditEnvelope(BaseModel):

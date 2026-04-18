@@ -84,6 +84,28 @@ services:
       - PHI/PII fail-closed sanitation (HIPAA 18)
       - output label constrained to yes/no/unknown
 
+
+  case_causal_review:
+    endpoint: /flows/case_causal_review
+    mcp_tools:
+      - case_causal_review_prompt_bundle
+      - case_causal_review_sanitize_row
+      - case_causal_review_build_prompt
+      - case_causal_review_parse_response
+    input:
+      - adverse_event_name
+      - review_row
+      - source_type
+      - allowed_domains
+    output:
+      - candidates_by_domain
+      - narrative
+      - mode
+      - diagnostics
+    validation:
+      - fail-closed sanitization before any LLM call
+      - structured output must be constrained to observed items present in the supplied row
+
   keeper_concept_sets_generate:
     endpoint: /flows/keeper_concept_sets_generate
     mcp_tools:

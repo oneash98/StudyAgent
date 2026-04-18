@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "case_causal_review_output",
+  "type": "object",
+  "properties": {
+    "candidates_by_domain": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "domain": { "type": "string" },
+            "label": { "type": "string" },
+            "source_record_id": { "type": "string" },
+            "why_it_may_contribute": { "type": "string" },
+            "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+            "rank": { "type": "integer", "minimum": 1 }
+          },
+          "required": [
+            "domain",
+            "label",
+            "source_record_id",
+            "why_it_may_contribute",
+            "confidence",
+            "rank"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "narrative": { "type": "string" },
+    "mode": { "type": "string", "const": "case_causal_review" },
+    "diagnostics": { "type": "object" }
+  },
+  "required": ["candidates_by_domain", "narrative", "mode", "diagnostics"],
+  "additionalProperties": false
+}

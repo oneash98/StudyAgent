@@ -697,6 +697,107 @@ class StudyAgent:
             parsed.setdefault("diagnostics", self._llm_diagnostics(llm_result))
         return parsed
 
+
+    def run_case_causal_review_flow(
+        self,
+        adverse_event_name: str,
+        review_row: Dict[str, Any],
+        source_type: str,
+        allowed_domains: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        if self._mcp_client is None:
+            return {"status": "error", "error": "MCP client unavailable"}
+        if not adverse_event_name:
+            return {"status": "error", "error": "missing adverse_event_name"}
+        if not isinstance(review_row, dict) or not review_row:
+            return {"status": "error", "error": "missing review_row"}
+        if source_type not in {"signal_validation", "patient_profile"}:
+            return {"status": "error", "error": "invalid source_type"}
+
+        sanitize = self.call_tool(
+            name="case_causal_review_sanitize_row",
+            arguments={"review_row": review_row, "allowed_domains": allowed_domains or []},
+        )
+        sanitize_full = sanitize.get("full_result") or {}
+        if sanitize.get("status") != "ok" or sanitize_full.get("error"):
+            return {
+                "status": "error",
+                "error": sanitize_full.get("error") or "case_causal_review_sanitize_row_failed",
+                "details": sanitize,
+            }
+        sanitized_row = sanitize_full.get("sanitized_row") or {}
+
+        prompt_bundle = self.call_tool(
+            name="case_causal_review_prompt_bundle",
+            arguments={"adverse_event_name": adverse_event_name, "source_type": source_type},
+        )
+        prompt_full = prompt_bundle.get("full_result") or {}
+        if prompt_bundle.get("status") != "ok" or prompt_full.get("error"):
+            return {
+                "status": "error",
+                "error": "case_causal_review_prompt_bundle_failed",
+                "details": prompt_bundle,
+            }
+
+        build_prompt = self.call_tool(
+            name="case_causal_review_build_prompt",
+            arguments={
+                "adverse_event_name": adverse_event_name,
+                "sanitized_row": sanitized_row,
+                "source_type": source_type,
+                "allowed_domains": allowed_domains or [],
+            },
+        )
+        build_full = build_prompt.get("full_result") or {}
+        if build_prompt.get("status") != "ok" or build_full.get("error"):
+            return {
+                "status": "error",
+                "error": "case_causal_review_build_prompt_failed",
+                "details": build_prompt,
+            }
+
+        prompt = build_keeper_concept_set_prompt(
+            overview=prompt_full.get("overview", ""),
+            spec=prompt_full.get("spec", ""),
+            output_schema=prompt_full.get("output_schema", {}),
+            system_prompt=prompt_full.get("system_prompt", ""),
+            payload=build_full.get("prompt_payload") or {},
+            max_kb=20,
+        )
+        llm_result = self._call_llm(prompt, required_keys=["candidates_by_domain", "narrative", "mode"])
+        llm_payload = llm_result_payload(llm_result)
+
+        parsed = self.call_tool(
+            name="case_causal_review_parse_response",
+            arguments={
+                "llm_output": llm_payload,
+                "sanitized_row": sanitized_row,
+                "allowed_domains": allowed_domains or [],
+            },
+        )
+        parsed_full = parsed.get("full_result") or {}
+        if parsed.get("status") != "ok" or parsed_full.get("error"):
+            return {
+                "status": "error",
+                "error": "case_causal_review_parse_response_failed",
+                "details": parsed,
+            }
+
+        diagnostics = dict(sanitize_full.get("diagnostics") or {})
+        diagnostics.update(parsed_full.get("diagnostics") or {})
+        diagnostics.update(self._llm_diagnostics(llm_result))
+
+        return {
+            "status": "ok",
+            "flow_name": "case_causal_review",
+            "mode": parsed_full.get("mode") or "case_causal_review",
+            "candidates_by_domain": parsed_full.get("candidates_by_domain") or {},
+            "narrative": parsed_full.get("narrative") or "",
+            "diagnostics": diagnostics,
+            "llm_used": llm_payload is not None,
+            "llm_status": llm_result.status,
+        }
+
     def run_keeper_concept_sets_generate_flow(
         self,
         phenotype: str,
@@ -945,7 +1046,7 @@ class StudyAgent:
             }
         terms_payload = llm_result_payload(terms_result) or {}
         terms = [str(term).strip() for term in (terms_payload.get("terms") or []) if str(term).strip()]
-        logger.debug("keeper domain=%s target=%s generated_terms=%s", domain_key, target, len(terms))
+        logger.debug("keeper domain=%s target=%s generated_terms=%s vocab_search_provider=%s", domain_key, target, len(terms), vocab_search_provider)
 
         search_candidates: List[Dict[str, Any]] = []
         search_errors: List[Dict[str, Any]] = []

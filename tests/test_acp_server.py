@@ -139,6 +139,54 @@ class StubMCPClient:
             return {"prompt": "main"}
         if name == "keeper_parse_response":
             return {"label": "yes", "rationale": "ok"}
+        if name == "case_causal_review_sanitize_row":
+            return {
+                "sanitized_row": {
+                    "observed_items_by_domain": {
+                        "drug_exposures": [
+                            {"domain": "drug_exposures", "label": "Warfarin", "source_record_id": "drug-1"}
+                        ]
+                    },
+                    "context": {"case_summary": "GI bleed after anticoagulation."},
+                    "domains": ["drug_exposures"],
+                    "observed_item_count": 1,
+                },
+                "diagnostics": {"sanitization_status": "ok"},
+            }
+        if name == "case_causal_review_prompt_bundle":
+            return {
+                "overview": "overview",
+                "spec": "spec",
+                "output_schema": {"type": "object"},
+                "system_prompt": "system",
+            }
+        if name == "case_causal_review_build_prompt":
+            return {
+                "prompt": "main",
+                "prompt_payload": {
+                    "task": "case_causal_review",
+                    "adverse_event_name": arguments.get("adverse_event_name"),
+                    "source_type": arguments.get("source_type"),
+                },
+            }
+        if name == "case_causal_review_parse_response":
+            return {
+                "candidates_by_domain": {
+                    "drug_exposures": [
+                        {
+                            "domain": "drug_exposures",
+                            "label": "Warfarin",
+                            "source_record_id": "drug-1",
+                            "why_it_may_contribute": "Bleeding risk",
+                            "confidence": "high",
+                            "rank": 1,
+                        }
+                    ]
+                },
+                "narrative": "Warfarin is a plausible contributor.",
+                "mode": "case_causal_review",
+                "diagnostics": {"parse_mode": "dict"},
+            }
         if name == "keeper_concept_set_bundle":
             if arguments.get("domain_key"):
                 domain_key = arguments["domain_key"]
@@ -628,3 +676,104 @@ def test_flow_phenotype_intent_split_prompt_bundle_error(monkeypatch):
     )
     assert result["status"] == "error"
     assert result["error"] == "phenotype_intent_split_prompt_failed"
+
+
+
+@pytest.mark.acp
+def test_flow_case_causal_review(monkeypatch):
+    import study_agent_acp.agent as agent_module
+
+    def fake_llm(prompt, required_keys=None):
+        return {
+            "candidates_by_domain": {
+                "drug_exposures": [
+                    {
+                        "domain": "drug_exposures",
+                        "label": "Warfarin",
+                        "source_record_id": "drug-1",
+                        "why_it_may_contribute": "Bleeding risk",
+                        "confidence": "high",
+                        "rank": 1,
+                    }
+                ]
+            },
+            "narrative": "Warfarin is a plausible contributor.",
+            "mode": "case_causal_review",
+            "diagnostics": {},
+        }
+
+    monkeypatch.setattr(agent_module, "call_llm", fake_llm)
+    agent = StudyAgent(mcp_client=StubMCPClient())
+    result = agent.run_case_causal_review_flow(
+        adverse_event_name="GI bleed",
+        review_row={
+            "observed_items": [
+                {"domain": "drug_exposures", "label": "Warfarin", "source_record_id": "drug-1"}
+            ]
+        },
+        source_type="signal_validation",
+        allowed_domains=["drug_exposures"],
+    )
+    assert result["status"] == "ok"
+    assert result["flow_name"] == "case_causal_review"
+    assert result["candidates_by_domain"]["drug_exposures"][0]["label"] == "Warfarin"
+
+
+@pytest.mark.acp
+def test_route_case_causal_review_wiring(monkeypatch):
+    handler = acp_server.ACPRequestHandler.__new__(acp_server.ACPRequestHandler)
+    handler.path = "/flows/case_causal_review"
+    handler.headers = {}
+    handler.debug = False
+    handler.wfile = None
+    handler.rfile = None
+    captured = {}
+
+    class FakeAgent:
+        def run_case_causal_review_flow(self, adverse_event_name, review_row, source_type, allowed_domains):
+            captured["call"] = {
+                "adverse_event_name": adverse_event_name,
+                "review_row": review_row,
+                "source_type": source_type,
+                "allowed_domains": allowed_domains,
+            }
+            return {
+                "status": "ok",
+                "flow_name": "case_causal_review",
+                "mode": "case_causal_review",
+                "candidates_by_domain": {},
+                "narrative": "",
+                "diagnostics": {},
+            }
+
+    handler.agent = FakeAgent()
+    handler.mcp_client = None
+
+    body = {
+        "adverse_event_name": "GI bleed",
+        "review_row": {"observed_items": [{"domain": "drug_exposures", "label": "Warfarin", "source_record_id": "drug-1"}]},
+        "source_type": "signal_validation",
+        "allowed_domains": ["drug_exposures"],
+    }
+
+    original_read = acp_server._read_json
+    original_write = acp_server._write_json
+
+    def fake_read_json(_handler):
+        return body
+
+    def fake_write_json(_handler, status, payload):
+        captured["status"] = status
+        captured["payload"] = payload
+
+    acp_server._read_json = fake_read_json
+    acp_server._write_json = fake_write_json
+    try:
+        handler.do_POST()
+    finally:
+        acp_server._read_json = original_read
+        acp_server._write_json = original_write
+
+    assert captured["status"] == 200
+    assert captured["call"]["source_type"] == "signal_validation"
+    assert captured["payload"]["flow_name"] == "case_causal_review"
