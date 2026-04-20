@@ -698,10 +698,132 @@ class StudyAgent:
         return parsed
 
 
+    def _collect_case_causal_review_enrichment(
+        self,
+        sanitized_row: Dict[str, Any],
+        source_type: str,
+        adverse_event_name: str,
+    ) -> Dict[str, Any]:
+        tool_hints = sanitized_row.get("tool_hints") or {}
+        requested = list(tool_hints.get("prefetch_expansions") or [])
+        if not requested:
+            return {"requested": [], "called": [], "results": {}}
+
+        results: Dict[str, Any] = {}
+        called: List[str] = []
+        annotations = sanitized_row.get("annotations") or {}
+        case_metadata = sanitized_row.get("case_metadata") or {}
+        index_event = sanitized_row.get("index_event") or {}
+        index_annotations = index_event.get("annotations") or {}
+        candidate_items = list(sanitized_row.get("candidate_items") or [])
+        case_id = sanitized_row.get("case_id") or ""
+        report_lookup_key = (
+            case_metadata.get("lookup_key")
+            or case_metadata.get("report_lookup_key")
+            or index_annotations.get("report_lookup_key")
+            or annotations.get("report_lookup_key")
+            or ""
+        )
+        adverse_event_meddra_id = (
+            index_annotations.get("adverse_event_meddra_id")
+            or index_annotations.get("meddra_id")
+            or annotations.get("adverse_event_meddra_id")
+            or ""
+        )
+        adverse_event_concept_id = (
+            index_annotations.get("adverse_event_concept_id")
+            or annotations.get("adverse_event_concept_id")
+            or index_annotations.get("outcome_concept_id")
+            or annotations.get("outcome_concept_id")
+        )
+
+        for tool_name in requested:
+            if tool_name == "get_case_review_concept_set_domain":
+                concept_set_id = annotations.get("concept_set_id")
+                concept_set_version = annotations.get("concept_set_version")
+                if not concept_set_id or concept_set_version in (None, ""):
+                    continue
+                domains = list(sanitized_row.get("candidate_items_by_domain") or {})[:3]
+                tool_results = []
+                for domain in domains:
+                    tool_result = self.call_tool(
+                        name=tool_name,
+                        arguments={
+                            "concept_set_id": concept_set_id,
+                            "concept_set_version": concept_set_version,
+                            "domain_name": domain,
+                        },
+                    )
+                    tool_results.append(tool_result.get("full_result") or {})
+                if tool_results:
+                    results[tool_name] = tool_results
+                    called.append(tool_name)
+                continue
+
+            if tool_name in {"get_case_review_drug_signal_details", "get_case_review_drug_label_details"}:
+                drugs = [item for item in candidate_items if item.get("domain") == "drug_exposures"][:3]
+                tool_results = []
+                for item in drugs:
+                    item_annotations = item.get("annotations") or {}
+                    arguments: Dict[str, Any] = {
+                        "source_type": source_type,
+                        "adverse_event_name": adverse_event_name,
+                        "source_record_id": item.get("source_record_id") or "",
+                    }
+                    if case_id:
+                        arguments["case_id"] = case_id
+                    value = (
+                        item_annotations.get("report_lookup_key")
+                        or report_lookup_key
+                    )
+                    if value not in (None, ""):
+                        arguments["report_lookup_key"] = value
+                    value = item_annotations.get("ingredient_concept_id")
+                    if value not in (None, ""):
+                        arguments["ingredient_concept_id"] = value
+                    value = item_annotations.get("ingred_rxcui") or item_annotations.get("rxcui")
+                    if value not in (None, ""):
+                        arguments["ingred_rxcui"] = value
+                    value = (
+                        item_annotations.get("adverse_event_meddra_id")
+                        or adverse_event_meddra_id
+                    )
+                    if value not in (None, ""):
+                        arguments["adverse_event_meddra_id"] = value
+                    value = (
+                        item_annotations.get("adverse_event_concept_id")
+                        or item_annotations.get("outcome_concept_id")
+                        or adverse_event_concept_id
+                    )
+                    if value not in (None, ""):
+                        arguments["adverse_event_concept_id"] = value
+                    if tool_name == "get_case_review_drug_label_details":
+                        value = item_annotations.get("mention_limit")
+                        if value not in (None, ""):
+                            arguments["mention_limit"] = value
+                    tool_result = self.call_tool(name=tool_name, arguments=arguments)
+                    tool_results.append(tool_result.get("full_result") or {})
+                if tool_results:
+                    results[tool_name] = tool_results
+                    called.append(tool_name)
+                continue
+
+            if tool_name == "get_case_review_report_literature_stub":
+                arguments = {
+                    "source_type": source_type,
+                    "case_id": case_id,
+                }
+                if report_lookup_key:
+                    arguments["report_lookup_key"] = report_lookup_key
+                tool_result = self.call_tool(name=tool_name, arguments=arguments)
+                results[tool_name] = tool_result.get("full_result") or {}
+                called.append(tool_name)
+        return {"requested": requested, "called": called, "results": results}
+
     def run_case_causal_review_flow(
         self,
         adverse_event_name: str,
-        review_row: Dict[str, Any],
+        case_row: Dict[str, Any],
         source_type: str,
         allowed_domains: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
@@ -709,14 +831,14 @@ class StudyAgent:
             return {"status": "error", "error": "MCP client unavailable"}
         if not adverse_event_name:
             return {"status": "error", "error": "missing adverse_event_name"}
-        if not isinstance(review_row, dict) or not review_row:
-            return {"status": "error", "error": "missing review_row"}
+        if not isinstance(case_row, dict) or not case_row:
+            return {"status": "error", "error": "missing case_row"}
         if source_type not in {"signal_validation", "patient_profile"}:
             return {"status": "error", "error": "invalid source_type"}
 
         sanitize = self.call_tool(
             name="case_causal_review_sanitize_row",
-            arguments={"review_row": review_row, "allowed_domains": allowed_domains or []},
+            arguments={"case_row": case_row, "allowed_domains": allowed_domains or []},
         )
         sanitize_full = sanitize.get("full_result") or {}
         if sanitize.get("status") != "ok" or sanitize_full.get("error"):
@@ -726,6 +848,11 @@ class StudyAgent:
                 "details": sanitize,
             }
         sanitized_row = sanitize_full.get("sanitized_row") or {}
+        enrichment = self._collect_case_causal_review_enrichment(
+            sanitized_row,
+            source_type=source_type,
+            adverse_event_name=adverse_event_name,
+        )
 
         prompt_bundle = self.call_tool(
             name="case_causal_review_prompt_bundle",
@@ -746,6 +873,7 @@ class StudyAgent:
                 "sanitized_row": sanitized_row,
                 "source_type": source_type,
                 "allowed_domains": allowed_domains or [],
+                "enrichment": enrichment.get("results") or {},
             },
         )
         build_full = build_prompt.get("full_result") or {}
@@ -762,7 +890,7 @@ class StudyAgent:
             output_schema=prompt_full.get("output_schema", {}),
             system_prompt=prompt_full.get("system_prompt", ""),
             payload=build_full.get("prompt_payload") or {},
-            max_kb=20,
+            max_kb=18,
         )
         llm_result = self._call_llm(prompt, required_keys=["candidates_by_domain", "narrative", "mode"])
         llm_payload = llm_result_payload(llm_result)
@@ -784,6 +912,7 @@ class StudyAgent:
             }
 
         diagnostics = dict(sanitize_full.get("diagnostics") or {})
+        diagnostics["optional_enrichment"] = enrichment
         diagnostics.update(parsed_full.get("diagnostics") or {})
         diagnostics.update(self._llm_diagnostics(llm_result))
 

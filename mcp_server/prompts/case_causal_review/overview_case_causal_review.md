@@ -1,5 +1,7 @@
 Task: `case_causal_review`.
 
-You are reviewing a de-identified canonical safety report review row prepared upstream by a post-market drug safety surveillance system.
-The adverse event is assumed to have occurred already. Your job is not adjudication.
-Your job is to rank observed items in the supplied row that could plausibly have contributed causally.
+You are reviewing a de-identified canonical case row prepared upstream by pv-copilot.
+The adverse event is assumed to have occurred already.
+Your job is to rank only candidate items that could plausibly have contributed causally.
+Use context items, case metadata, semantic subroles, and compact annotations to support reasoning.
+Keep reasoning concise and grounded so the task remains workable for small chat-completions models.

@@ -15,7 +15,9 @@
             "source_record_id": { "type": "string" },
             "why_it_may_contribute": { "type": "string" },
             "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
-            "rank": { "type": "integer", "minimum": 1 }
+            "rank": { "type": "integer", "minimum": 1 },
+            "candidate_role": { "type": "string" },
+            "evidence_basis": { "type": "string" }
           },
           "required": [
             "domain",

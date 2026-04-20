@@ -142,14 +142,50 @@ class StubMCPClient:
         if name == "case_causal_review_sanitize_row":
             return {
                 "sanitized_row": {
-                    "observed_items_by_domain": {
+                    "case_id": "case-1",
+                    "case_summary": "GI bleed after anticoagulation.",
+                    "index_event": {
+                        "domain": "index_event",
+                        "label": "GI bleed",
+                        "source_record_id": "reaction-1",
+                        "subrole": "index_event",
+                        "annotations": {"adverse_event_concept_id": 321, "adverse_event_meddra_id": "789"},
+                    },
+                    "candidate_items": [
+                        {
+                            "domain": "drug_exposures",
+                            "label": "Warfarin",
+                            "source_record_id": "drug-1",
+                            "source_kind": "reported_drug",
+                            "subrole": "primary_suspect",
+                            "annotations": {"has_disproportional_signal": True, "label_mentions_event": True, "ingredient_concept_id": 123, "ingred_rxcui": "456"},
+                        }
+                    ],
+                    "candidate_items_by_domain": {
                         "drug_exposures": [
-                            {"domain": "drug_exposures", "label": "Warfarin", "source_record_id": "drug-1"}
+                            {
+                                "domain": "drug_exposures",
+                                "label": "Warfarin",
+                                "source_record_id": "drug-1",
+                                "source_kind": "reported_drug",
+                                "subrole": "primary_suspect",
+                                "annotations": {"has_disproportional_signal": True, "label_mentions_event": True, "ingredient_concept_id": 123, "ingred_rxcui": "456"},
+                            }
                         ]
                     },
-                    "context": {"case_summary": "GI bleed after anticoagulation."},
-                    "domains": ["drug_exposures"],
-                    "observed_item_count": 1,
+                    "context_items": [
+                        {
+                            "domain": "labs",
+                            "label": "INR 4.2",
+                            "source_record_id": "lab-1",
+                            "subrole": "proximate_marker",
+                            "annotations": {},
+                        }
+                    ],
+                    "context_items_by_domain": {"labs": [{"domain": "labs", "label": "INR 4.2", "source_record_id": "lab-1", "subrole": "proximate_marker", "annotations": {}}]},
+                    "case_metadata": {"literature_reference_present": True, "lookup_key": {"primaryid": None, "isr": "6526923"}},
+                    "annotations": {"concept_set_id": "uuid", "concept_set_version": 1, "concept_set_available_domains": ["drug_exposures"]},
+                    "tool_hints": dict(arguments.get("case_row", {}).get("tool_hints") or {"available_expansions": ["get_case_review_drug_signal_details", "get_case_review_report_literature_stub"], "prefetch_expansions": []}),
                 },
                 "diagnostics": {"sanitization_status": "ok"},
             }
@@ -160,6 +196,24 @@ class StubMCPClient:
                 "output_schema": {"type": "object"},
                 "system_prompt": "system",
             }
+        if name == "get_case_review_concept_set_domain":
+            return {"status": "ok", "domain_name": arguments.get("domain_name"), "items": []}
+        if name == "get_case_review_drug_signal_details":
+            return {
+                "status": "ok",
+                "source_record_id": arguments.get("source_record_id"),
+                "adverse_event_concept_id": arguments.get("adverse_event_concept_id"),
+                "has_disproportional_signal": True,
+            }
+        if name == "get_case_review_drug_label_details":
+            return {
+                "status": "ok",
+                "source_record_id": arguments.get("source_record_id"),
+                "adverse_event_concept_id": arguments.get("adverse_event_concept_id"),
+                "label_mentions_event": True,
+            }
+        if name == "get_case_review_report_literature_stub":
+            return {"status": "ok", "case_id": arguments.get("case_id"), "literature_reference_present": True}
         if name == "case_causal_review_build_prompt":
             return {
                 "prompt": "main",
@@ -167,6 +221,7 @@ class StubMCPClient:
                     "task": "case_causal_review",
                     "adverse_event_name": arguments.get("adverse_event_name"),
                     "source_type": arguments.get("source_type"),
+                    "enrichment": arguments.get("enrichment") or {},
                 },
             }
         if name == "case_causal_review_parse_response":
@@ -180,6 +235,8 @@ class StubMCPClient:
                             "why_it_may_contribute": "Bleeding risk",
                             "confidence": "high",
                             "rank": 1,
+                            "candidate_role": "primary_suspect",
+                            "evidence_basis": "Signal and label metadata",
                         }
                     ]
                 },
@@ -706,10 +763,17 @@ def test_flow_case_causal_review(monkeypatch):
     agent = StudyAgent(mcp_client=StubMCPClient())
     result = agent.run_case_causal_review_flow(
         adverse_event_name="GI bleed",
-        review_row={
-            "observed_items": [
-                {"domain": "drug_exposures", "label": "Warfarin", "source_record_id": "drug-1"}
-            ]
+        case_row={
+            "case_id": "case-1",
+            "case_summary": "GI bleed after anticoagulation.",
+            "index_event": {"domain": "index_event", "label": "GI bleed", "source_record_id": "reaction-1"},
+            "candidate_items": [
+                {"domain": "drug_exposures", "label": "Warfarin", "source_record_id": "drug-1", "subrole": "primary_suspect"}
+            ],
+            "context_items": [],
+            "case_metadata": {},
+            "annotations": {},
+            "tool_hints": {"available_expansions": [], "prefetch_expansions": []}
         },
         source_type="signal_validation",
         allowed_domains=["drug_exposures"],
@@ -730,10 +794,10 @@ def test_route_case_causal_review_wiring(monkeypatch):
     captured = {}
 
     class FakeAgent:
-        def run_case_causal_review_flow(self, adverse_event_name, review_row, source_type, allowed_domains):
+        def run_case_causal_review_flow(self, adverse_event_name, case_row, source_type, allowed_domains):
             captured["call"] = {
                 "adverse_event_name": adverse_event_name,
-                "review_row": review_row,
+                "case_row": case_row,
                 "source_type": source_type,
                 "allowed_domains": allowed_domains,
             }
@@ -751,7 +815,7 @@ def test_route_case_causal_review_wiring(monkeypatch):
 
     body = {
         "adverse_event_name": "GI bleed",
-        "review_row": {"observed_items": [{"domain": "drug_exposures", "label": "Warfarin", "source_record_id": "drug-1"}]},
+        "case_row": {"case_id": "case-1", "case_summary": "summary", "index_event": {"domain": "index_event", "label": "GI bleed", "source_record_id": "reaction-1"}, "candidate_items": [{"domain": "drug_exposures", "label": "Warfarin", "source_record_id": "drug-1"}], "context_items": [], "case_metadata": {}, "annotations": {}, "tool_hints": {"available_expansions": [], "prefetch_expansions": []}},
         "source_type": "signal_validation",
         "allowed_domains": ["drug_exposures"],
     }
@@ -777,3 +841,280 @@ def test_route_case_causal_review_wiring(monkeypatch):
     assert captured["status"] == 200
     assert captured["call"]["source_type"] == "signal_validation"
     assert captured["payload"]["flow_name"] == "case_causal_review"
+
+
+
+@pytest.mark.acp
+def test_flow_case_causal_review_prefetches_optional_enrichment(monkeypatch):
+    import study_agent_acp.agent as agent_module
+
+    def fake_llm(prompt, required_keys=None):
+        return {
+            "candidates_by_domain": {
+                "drug_exposures": [
+                    {
+                        "domain": "drug_exposures",
+                        "label": "Warfarin",
+                        "source_record_id": "drug-1",
+                        "why_it_may_contribute": "Bleeding risk",
+                        "confidence": "high",
+                        "rank": 1,
+                    }
+                ]
+            },
+            "narrative": "Warfarin is a plausible contributor.",
+            "mode": "case_causal_review",
+            "diagnostics": {},
+        }
+
+    class LabelEnrichmentClient(StubMCPClient):
+        def call_tool(self, name, arguments):
+            if name == "case_causal_review_sanitize_row":
+                self.calls.append((name, arguments))
+                return {
+                    "sanitized_row": {
+                        "case_id": arguments.get("case_row", {}).get("case_id") or "",
+                        "case_summary": arguments.get("case_row", {}).get("case_summary") or "",
+                        "index_event": arguments.get("case_row", {}).get("index_event") or {},
+                        "candidate_items": arguments.get("case_row", {}).get("candidate_items") or [],
+                        "candidate_items_by_domain": {
+                            "drug_exposures": list(arguments.get("case_row", {}).get("candidate_items") or [])
+                        },
+                        "context_items": arguments.get("case_row", {}).get("context_items") or [],
+                        "context_items_by_domain": {},
+                        "case_metadata": arguments.get("case_row", {}).get("case_metadata") or {},
+                        "annotations": arguments.get("case_row", {}).get("annotations") or {},
+                        "tool_hints": arguments.get("case_row", {}).get("tool_hints") or {},
+                    },
+                    "diagnostics": {"sanitization_status": "ok"},
+                }
+            return super().call_tool(name, arguments)
+
+    monkeypatch.setattr(agent_module, "call_llm", fake_llm)
+    client = LabelEnrichmentClient()
+    agent = StudyAgent(mcp_client=client)
+    result = agent.run_case_causal_review_flow(
+        adverse_event_name="GI bleed",
+        case_row={
+            "case_id": "case-1",
+            "case_summary": "GI bleed after anticoagulation.",
+            "index_event": {
+                "domain": "index_event",
+                "label": "GI bleed",
+                "source_record_id": "reaction-1",
+                "annotations": {"adverse_event_concept_id": 321, "adverse_event_meddra_id": "789"},
+            },
+            "candidate_items": [
+                {
+                    "domain": "drug_exposures",
+                    "label": "Warfarin",
+                    "source_record_id": "drug-1",
+                    "subrole": "primary_suspect",
+                    "annotations": {"ingredient_concept_id": 123, "ingred_rxcui": "456"},
+                }
+            ],
+            "context_items": [],
+            "case_metadata": {"literature_reference_present": True, "lookup_key": {"primaryid": None, "isr": "6526923"}},
+            "annotations": {"concept_set_available_domains": ["drug_exposures"]},
+            "tool_hints": {
+                "available_expansions": ["get_case_review_drug_signal_details", "get_case_review_report_literature_stub"],
+                "prefetch_expansions": ["get_case_review_drug_signal_details", "get_case_review_report_literature_stub"],
+            },
+        },
+        source_type="signal_validation",
+        allowed_domains=["drug_exposures"],
+    )
+    assert result["status"] == "ok"
+    assert result["diagnostics"]["optional_enrichment"]["called"] == [
+        "get_case_review_drug_signal_details",
+        "get_case_review_report_literature_stub",
+    ]
+    signal_call = next(arguments for name, arguments in client.calls if name == "get_case_review_drug_signal_details")
+    literature_call = next(arguments for name, arguments in client.calls if name == "get_case_review_report_literature_stub")
+    assert signal_call["source_record_id"] == "drug-1"
+    assert signal_call["adverse_event_concept_id"] == 321
+    assert signal_call["ingredient_concept_id"] == 123
+    assert signal_call["ingred_rxcui"] == "456"
+    assert signal_call["report_lookup_key"] == {"primaryid": None, "isr": "6526923"}
+    assert signal_call["adverse_event_meddra_id"] == "789"
+    assert literature_call["report_lookup_key"] == {"primaryid": None, "isr": "6526923"}
+
+
+@pytest.mark.acp
+def test_flow_case_causal_review_prefetches_drug_label_details_with_event_identifiers(monkeypatch):
+    import study_agent_acp.agent as agent_module
+
+    def fake_llm(prompt, required_keys=None):
+        return {
+            "candidates_by_domain": {
+                "drug_exposures": [
+                    {
+                        "domain": "drug_exposures",
+                        "label": "Warfarin",
+                        "source_record_id": "drug-1",
+                        "why_it_may_contribute": "Bleeding risk",
+                        "confidence": "high",
+                        "rank": 1,
+                    }
+                ]
+            },
+            "narrative": "Warfarin is a plausible contributor.",
+            "mode": "case_causal_review",
+            "diagnostics": {},
+        }
+
+    class LabelEnrichmentClient(StubMCPClient):
+        def call_tool(self, name, arguments):
+            if name == "case_causal_review_sanitize_row":
+                self.calls.append((name, arguments))
+                case_row = arguments.get("case_row", {})
+                candidate_items = list(case_row.get("candidate_items") or [])
+                context_items = list(case_row.get("context_items") or [])
+                candidate_items_by_domain = {}
+                for item in candidate_items:
+                    candidate_items_by_domain.setdefault(item.get("domain") or "", []).append(item)
+                context_items_by_domain = {}
+                for item in context_items:
+                    context_items_by_domain.setdefault(item.get("domain") or "", []).append(item)
+                return {
+                    "sanitized_row": {
+                        "case_id": case_row.get("case_id") or "",
+                        "case_summary": case_row.get("case_summary") or "",
+                        "index_event": case_row.get("index_event") or {},
+                        "candidate_items": candidate_items,
+                        "candidate_items_by_domain": candidate_items_by_domain,
+                        "context_items": context_items,
+                        "context_items_by_domain": context_items_by_domain,
+                        "case_metadata": case_row.get("case_metadata") or {},
+                        "annotations": case_row.get("annotations") or {},
+                        "tool_hints": case_row.get("tool_hints") or {},
+                    },
+                    "diagnostics": {"sanitization_status": "ok"},
+                }
+            return super().call_tool(name, arguments)
+
+    monkeypatch.setattr(agent_module, "call_llm", fake_llm)
+    client = LabelEnrichmentClient()
+    agent = StudyAgent(mcp_client=client)
+    result = agent.run_case_causal_review_flow(
+        adverse_event_name="Cystitis",
+        case_row={
+            "case_id": "6526923-5",
+            "case_summary": "Cystitis after exposure.",
+            "index_event": {
+                "domain": "index_event",
+                "label": "Cystitis",
+                "source_record_id": "reaction-1",
+                "annotations": {"adverse_event_concept_id": 36110716, "adverse_event_meddra_id": "10011781"},
+            },
+            "candidate_items": [
+                {
+                    "domain": "drug_exposures",
+                    "label": "Nitrofurantoin",
+                    "source_record_id": "drug-1",
+                    "subrole": "primary_suspect",
+                    "annotations": {"ingredient_concept_id": 785649, "ingred_rxcui": "6130"},
+                }
+            ],
+            "context_items": [],
+            "case_metadata": {"literature_reference_present": True, "lookup_key": {"primaryid": None, "isr": "6526923"}},
+            "annotations": {},
+            "tool_hints": {
+                "available_expansions": ["get_case_review_drug_label_details"],
+                "prefetch_expansions": ["get_case_review_drug_label_details"],
+            },
+        },
+        source_type="signal_validation",
+        allowed_domains=["drug_exposures"],
+    )
+    assert result["status"] == "ok"
+    label_call = next(arguments for name, arguments in client.calls if name == "get_case_review_drug_label_details")
+    assert label_call["source_type"] == "signal_validation"
+    assert label_call["case_id"] == "6526923-5"
+    assert label_call["source_record_id"] == "drug-1"
+    assert label_call["adverse_event_name"] == "Cystitis"
+    assert label_call["adverse_event_concept_id"] == 36110716
+    assert label_call["adverse_event_meddra_id"] == "10011781"
+    assert label_call["report_lookup_key"] == {"primaryid": None, "isr": "6526923"}
+    assert label_call["ingredient_concept_id"] == 785649
+    assert label_call["ingred_rxcui"] == "6130"
+
+
+@pytest.mark.acp
+def test_flow_case_causal_review_succeeds_when_optional_enrichment_is_unavailable(monkeypatch):
+    import study_agent_acp.agent as agent_module
+
+    class UnavailableEnrichmentClient(StubMCPClient):
+        def call_tool(self, name, arguments):
+            if name in {
+                "get_case_review_drug_signal_details",
+                "get_case_review_report_literature_stub",
+            }:
+                self.calls.append((name, arguments))
+                return {"status": "unavailable", "error": "transport_error"}
+            return super().call_tool(name, arguments)
+
+    def fake_llm(prompt, required_keys=None):
+        return {
+            "candidates_by_domain": {
+                "drug_exposures": [
+                    {
+                        "domain": "drug_exposures",
+                        "label": "Warfarin",
+                        "source_record_id": "drug-1",
+                        "why_it_may_contribute": "Bleeding risk",
+                        "confidence": "high",
+                        "rank": 1,
+                    }
+                ]
+            },
+            "narrative": "Warfarin is a plausible contributor.",
+            "mode": "case_causal_review",
+            "diagnostics": {},
+        }
+
+    monkeypatch.setattr(agent_module, "call_llm", fake_llm)
+    client = UnavailableEnrichmentClient()
+    agent = StudyAgent(mcp_client=client)
+    result = agent.run_case_causal_review_flow(
+        adverse_event_name="GI bleed",
+        case_row={
+            "case_id": "case-1",
+            "case_summary": "GI bleed after anticoagulation.",
+            "index_event": {
+                "domain": "index_event",
+                "label": "GI bleed",
+                "source_record_id": "reaction-1",
+                "annotations": {"adverse_event_concept_id": 321, "adverse_event_meddra_id": "789"},
+            },
+            "candidate_items": [
+                {
+                    "domain": "drug_exposures",
+                    "label": "Warfarin",
+                    "source_record_id": "drug-1",
+                    "subrole": "primary_suspect",
+                    "annotations": {"ingredient_concept_id": 123, "ingred_rxcui": "456"},
+                }
+            ],
+            "context_items": [],
+            "case_metadata": {"literature_reference_present": True, "lookup_key": {"primaryid": None, "isr": "6526923"}},
+            "annotations": {},
+            "tool_hints": {
+                "available_expansions": ["get_case_review_drug_signal_details", "get_case_review_report_literature_stub"],
+                "prefetch_expansions": ["get_case_review_drug_signal_details", "get_case_review_report_literature_stub"],
+            },
+        },
+        source_type="signal_validation",
+        allowed_domains=["drug_exposures"],
+    )
+    assert result["status"] == "ok"
+    assert result["candidates_by_domain"]["drug_exposures"][0]["label"] == "Warfarin"
+    assert result["diagnostics"]["optional_enrichment"]["results"]["get_case_review_drug_signal_details"][0]["status"] == "unavailable"
+    assert result["diagnostics"]["optional_enrichment"]["results"]["get_case_review_report_literature_stub"]["status"] == "unavailable"
+    signal_call = next(arguments for name, arguments in client.calls if name == "get_case_review_drug_signal_details")
+    assert signal_call["source_record_id"] == "drug-1"
+    assert signal_call["adverse_event_concept_id"] == 321
+    assert signal_call["ingredient_concept_id"] == 123
+    assert signal_call["ingred_rxcui"] == "456"
+    assert signal_call["report_lookup_key"] == {"primaryid": None, "isr": "6526923"}
+    assert signal_call["adverse_event_meddra_id"] == "789"

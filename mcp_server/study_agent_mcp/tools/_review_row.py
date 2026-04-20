@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _URL_RE = re.compile(r"https?://\S+")
@@ -51,28 +51,23 @@ _PHI_KEYS = {
     "death_date",
 }
 
-_CASE_ITEM_TEXT_FIELDS = (
-    "label",
-    "why_observed",
-    "detail",
-    "evidence",
-    "when",
-    "value",
-    "category",
-    "status",
-    "note",
-)
+_ALLOWED_SUBROLES = {
+    "primary_suspect",
+    "secondary_suspect",
+    "concomitant_exposure",
+    "alternative_explanation",
+    "vulnerability_factor",
+    "contextual_factor",
+    "proximate_marker",
+    "index_event",
+}
 
-_CASE_CONTEXT_CANDIDATE_KEYS = (
-    "context",
-    "case_context",
-    "case_summary",
-    "event_context",
-    "event_summary",
-    "narrative_context",
-    "notes",
-    "metadata",
-)
+_ALLOWED_EXPANSION_TOOLS = {
+    "get_case_review_concept_set_domain",
+    "get_case_review_drug_signal_details",
+    "get_case_review_drug_label_details",
+    "get_case_review_report_literature_stub",
+}
 
 
 def bucket_age(age: Any) -> str:
@@ -100,6 +95,11 @@ def sanitize_text(text: str) -> str:
     value = _ZIP_RE.sub("[REDACTED_ZIP]", value)
     value = _DAY_RE.sub("(prior)", value)
     return value
+
+
+def clean_optional_text(value: Any) -> str:
+    text = sanitize_text(str(value or ""))
+    return "" if text == "None" else text
 
 
 def phi_detected(text: str) -> bool:
@@ -154,6 +154,13 @@ def normalize_domain(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
 
 
+def normalize_subrole(value: Any, default: str) -> str:
+    raw = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+    if raw in _ALLOWED_SUBROLES:
+        return raw
+    return default
+
+
 def sanitize_scalar(value: Any) -> Any:
     if value is None:
         return None
@@ -177,7 +184,7 @@ def sanitize_nested(value: Any, depth: int = 0) -> Any:
     return sanitize_scalar(value)
 
 
-def collect_phi_issues(value: Any, path: str = "review_row") -> List[str]:
+def collect_phi_issues(value: Any, path: str = "case_row") -> List[str]:
     issues: List[str] = []
     if isinstance(value, dict):
         for key, inner in value.items():
@@ -196,151 +203,185 @@ def collect_phi_issues(value: Any, path: str = "review_row") -> List[str]:
     return issues
 
 
-def _coerce_items(items: Any, fallback_domain: str = "") -> List[Dict[str, Any]]:
-    if not isinstance(items, list):
-        return []
-    coerced: List[Dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        candidate = dict(item)
-        if fallback_domain and not candidate.get("domain"):
-            candidate["domain"] = fallback_domain
-        coerced.append(candidate)
-    return coerced
+def _sanitize_case_item(item: Any, item_index: int, default_subrole: str) -> Dict[str, Any]:
+    if not isinstance(item, dict):
+        return {"error": "item_must_be_object", "item_index": item_index}
 
+    domain = normalize_domain(item.get("domain"))
+    label = clean_optional_text(item.get("label") or item.get("name") or item.get("term"))
+    source_record_id = clean_optional_text(item.get("source_record_id") or item.get("id"))
+    if not domain or not label or not source_record_id:
+        return {
+            "error": "item_requires_domain_label_source_record_id",
+            "item_index": item_index,
+        }
 
-def extract_case_items(review_row: Dict[str, Any]) -> Tuple[Dict[str, List[Dict[str, Any]]], str]:
-    if isinstance(review_row.get("observed_items"), list):
-        observed: Dict[str, List[Dict[str, Any]]] = {}
-        for item in _coerce_items(review_row.get("observed_items")):
-            domain = normalize_domain(item.get("domain"))
-            if not domain:
-                continue
-            observed.setdefault(domain, []).append(item)
-        return observed, "observed_items"
-
-    for key in ("items_by_domain", "candidates_by_domain", "observed_items_by_domain", "domains"):
-        raw = review_row.get(key)
-        if not isinstance(raw, dict):
-            continue
-        observed = {}
-        for domain_name, domain_items in raw.items():
-            domain = normalize_domain(domain_name)
-            if not domain:
-                continue
-            observed[domain] = _coerce_items(domain_items, fallback_domain=domain)
-        return observed, key
-
-    return {}, "missing"
-
-
-def extract_case_context(review_row: Dict[str, Any]) -> Dict[str, Any]:
-    context: Dict[str, Any] = {}
-    for key, value in review_row.items():
-        if key in {"observed_items", "items_by_domain", "candidates_by_domain", "observed_items_by_domain", "domains"}:
-            continue
-        if key in _CASE_CONTEXT_CANDIDATE_KEYS:
-            context[str(key)] = sanitize_nested(value)
-    if context:
-        return context
-
-    fallback: Dict[str, Any] = {}
-    for key, value in review_row.items():
-        if key in {"observed_items", "items_by_domain", "candidates_by_domain", "observed_items_by_domain", "domains"}:
-            continue
-        if isinstance(value, (str, int, float, bool, list, dict)):
-            fallback[str(key)] = sanitize_nested(value)
-    return fallback
+    return {
+        "domain": domain,
+        "label": label,
+        "source_record_id": source_record_id,
+        "source_kind": clean_optional_text(item.get("source_kind")),
+        "why_observed": clean_optional_text(item.get("why_observed")),
+        "subrole": normalize_subrole(item.get("subrole"), default_subrole),
+        "annotations": sanitize_nested(item.get("annotations") or {}),
+    }
 
 
 def sanitize_case_causal_review_row(
-    review_row: Dict[str, Any],
+    case_row: Dict[str, Any],
     allowed_domains: Iterable[str] | None = None,
 ) -> Dict[str, Any]:
-    if not isinstance(review_row, dict):
-        return {"error": "review_row_must_be_object"}
+    if not isinstance(case_row, dict):
+        return {"error": "case_row_must_be_object"}
 
-    issues = collect_phi_issues(review_row)
+    issues = collect_phi_issues(case_row)
     if issues:
         return {
-            "error": "unsafe_review_row",
+            "error": "unsafe_case_row",
             "diagnostics": {"sanitization_status": "rejected", "issues": issues[:20]},
         }
 
     allowed = {normalize_domain(domain) for domain in (allowed_domains or []) if normalize_domain(domain)}
-    observed_items, source_container = extract_case_items(review_row)
-    if not observed_items:
+    case_id = clean_optional_text(case_row.get("case_id"))
+    case_summary = clean_optional_text(case_row.get("case_summary"))
+
+    index_event = _sanitize_case_item(case_row.get("index_event") or {}, 0, "index_event")
+    if index_event.get("error"):
         return {
-            "error": "invalid_review_row_shape",
+            "error": "invalid_case_row_shape",
             "diagnostics": {
                 "sanitization_status": "rejected",
-                "reason": "missing_observed_items",
-                "accepted_containers": [
-                    "observed_items",
-                    "items_by_domain",
-                    "candidates_by_domain",
-                    "observed_items_by_domain",
-                    "domains",
-                ],
+                "reason": "invalid_index_event",
+                "details": index_event,
+            },
+        }
+    index_event["domain"] = "index_event"
+    index_event["subrole"] = "index_event"
+
+    candidate_items_raw = case_row.get("candidate_items")
+    if not isinstance(candidate_items_raw, list) or not candidate_items_raw:
+        return {
+            "error": "invalid_case_row_shape",
+            "diagnostics": {
+                "sanitization_status": "rejected",
+                "reason": "candidate_items_required",
             },
         }
 
-    sanitized_by_domain: Dict[str, List[Dict[str, Any]]] = {}
-    total_items = 0
-    for domain, items in observed_items.items():
-        if allowed and domain not in allowed:
-            continue
-        sanitized_items: List[Dict[str, Any]] = []
-        for idx, item in enumerate(items, start=1):
-            label = sanitize_text(str(item.get("label") or item.get("name") or item.get("term") or ""))
-            source_record_id = sanitize_text(str(item.get("source_record_id") or item.get("id") or ""))
-            if label in ("", "None") or source_record_id in ("", "None"):
-                return {
-                    "error": "invalid_review_row_shape",
-                    "diagnostics": {
-                        "sanitization_status": "rejected",
-                        "reason": "observed_items_require_label_and_source_record_id",
-                        "domain": domain,
-                        "item_index": idx,
-                    },
-                }
-
-            sanitized_item = {
-                "domain": domain,
-                "label": label,
-                "source_record_id": source_record_id,
+    candidate_items = []
+    candidate_items_by_domain: Dict[str, List[Dict[str, Any]]] = {}
+    for idx, item in enumerate(candidate_items_raw, start=1):
+        sanitized_item = _sanitize_case_item(item, idx, "contextual_factor")
+        if sanitized_item.get("error"):
+            return {
+                "error": "invalid_case_row_shape",
+                "diagnostics": {
+                    "sanitization_status": "rejected",
+                    "reason": "invalid_candidate_item",
+                    "details": sanitized_item,
+                },
             }
-            for field_name in _CASE_ITEM_TEXT_FIELDS:
-                if field_name in item and field_name not in sanitized_item:
-                    sanitized_item[field_name] = sanitize_text(str(item.get(field_name) or ""))
-            sanitized_items.append(sanitized_item)
+        if sanitized_item["subrole"] == "index_event":
+            return {
+                "error": "invalid_case_row_shape",
+                "diagnostics": {
+                    "sanitization_status": "rejected",
+                    "reason": "candidate_items_must_not_use_index_event_subrole",
+                    "item_index": idx,
+                },
+            }
+        if allowed and sanitized_item["domain"] not in allowed:
+            continue
+        if sanitized_item["source_record_id"] == index_event["source_record_id"]:
+            return {
+                "error": "invalid_case_row_shape",
+                "diagnostics": {
+                    "sanitization_status": "rejected",
+                    "reason": "candidate_items_must_not_repeat_index_event",
+                    "item_index": idx,
+                },
+            }
+        candidate_items.append(sanitized_item)
+        candidate_items_by_domain.setdefault(sanitized_item["domain"], []).append(sanitized_item)
 
-        if sanitized_items:
-            total_items += len(sanitized_items)
-            sanitized_by_domain[domain] = sanitized_items
-
-    if not sanitized_by_domain:
+    if not candidate_items:
         return {
-            "error": "no_observed_items_in_allowed_domains",
+            "error": "no_candidate_items_in_allowed_domains",
             "diagnostics": {
                 "sanitization_status": "rejected",
                 "allowed_domains": sorted(allowed),
-                "observed_domains": sorted(observed_items),
             },
         }
 
+    context_items = []
+    context_items_by_domain: Dict[str, List[Dict[str, Any]]] = {}
+    for idx, item in enumerate(case_row.get("context_items") or [], start=1):
+        sanitized_item = _sanitize_case_item(item, idx, "contextual_factor")
+        if sanitized_item.get("error"):
+            return {
+                "error": "invalid_case_row_shape",
+                "diagnostics": {
+                    "sanitization_status": "rejected",
+                    "reason": "invalid_context_item",
+                    "details": sanitized_item,
+                },
+            }
+        if allowed and sanitized_item["domain"] not in allowed:
+            continue
+        context_items.append(sanitized_item)
+        context_items_by_domain.setdefault(sanitized_item["domain"], []).append(sanitized_item)
+
+    case_metadata = sanitize_nested(case_row.get("case_metadata") or {})
+    annotations = sanitize_nested(case_row.get("annotations") or {})
+    raw_annotation_payload = case_row.get("annotations") or {}
+    available_domains = [
+        normalize_domain(domain)
+        for domain in raw_annotation_payload.get("concept_set_available_domains", [])
+        if normalize_domain(domain)
+    ]
+    if isinstance(annotations, dict):
+        annotations["concept_set_available_domains"] = available_domains
+
+    tool_hints_input = case_row.get("tool_hints") or {}
+    available_expansions = [
+        tool_name
+        for tool_name in tool_hints_input.get("available_expansions", [])
+        if tool_name in _ALLOWED_EXPANSION_TOOLS
+    ]
+    prefetch_expansions = [
+        tool_name
+        for tool_name in tool_hints_input.get("prefetch_expansions", [])
+        if tool_name in available_expansions
+    ]
+    tool_hints = {
+        "available_expansions": available_expansions,
+        "prefetch_expansions": prefetch_expansions,
+    }
+
     sanitized = {
-        "observed_items_by_domain": sanitized_by_domain,
-        "context": extract_case_context(review_row),
-        "domains": list(sanitized_by_domain.keys()),
-        "observed_item_count": total_items,
+        "case_id": case_id,
+        "case_summary": case_summary,
+        "index_event": index_event,
+        "candidate_items": candidate_items,
+        "candidate_items_by_domain": candidate_items_by_domain,
+        "context_items": context_items,
+        "context_items_by_domain": context_items_by_domain,
+        "case_metadata": case_metadata,
+        "annotations": annotations,
+        "tool_hints": tool_hints,
     }
     diagnostics = {
         "sanitization_status": "ok",
-        "source_container": source_container,
+        "candidate_item_count": len(candidate_items),
+        "context_item_count": len(context_items),
+        "candidate_domains": list(candidate_items_by_domain.keys()),
+        "context_domains": list(context_items_by_domain.keys()),
         "allowed_domains_applied": sorted(allowed),
-        "observed_domains": list(sanitized_by_domain.keys()),
-        "observed_item_count": total_items,
+        "available_expansions": available_expansions,
+        "prefetch_expansions": prefetch_expansions,
     }
     return {"sanitized_row": sanitized, "diagnostics": diagnostics}
+
+
+def case_review_optional_tools() -> List[str]:
+    return sorted(_ALLOWED_EXPANSION_TOOLS)

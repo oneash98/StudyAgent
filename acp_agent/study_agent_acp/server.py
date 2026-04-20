@@ -430,11 +430,11 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
                 _write_json(self, 400, {"error": f"invalid_json: {exc}"})
                 return
             adverse_event_name = body.get("adverse_event_name") or ""
-            review_row = body.get("review_row")
+            case_row = body.get("case_row")
             source_type = body.get("source_type") or ""
             allowed_domains = body.get("allowed_domains") or []
-            if not isinstance(review_row, dict):
-                _write_json(self, 400, {"error": "review_row must be a JSON object"})
+            if not isinstance(case_row, dict):
+                _write_json(self, 400, {"error": "case_row must be a JSON object"})
                 return
             if source_type not in {"signal_validation", "patient_profile"}:
                 _write_json(self, 400, {"error": "source_type must be signal_validation or patient_profile"})
@@ -445,7 +445,7 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
             try:
                 result = self.agent.run_case_causal_review_flow(
                     adverse_event_name=adverse_event_name,
-                    review_row=review_row,
+                    case_row=case_row,
                     source_type=source_type,
                     allowed_domains=allowed_domains,
                 )

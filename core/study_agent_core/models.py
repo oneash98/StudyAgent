@@ -46,7 +46,7 @@ class PhenotypeValidationReviewInput(BaseModel):
 
 class CaseCausalReviewInput(BaseModel):
     adverse_event_name: str = ""
-    review_row: Dict[str, Any] = Field(default_factory=dict)
+    case_row: Dict[str, Any] = Field(default_factory=dict)
     source_type: str = ""
     allowed_domains: List[str] = Field(default_factory=list)
     llm_result: Optional[Dict[str, Any]] = None
@@ -59,6 +59,8 @@ class CaseCausalReviewCandidate(BaseModel):
     why_it_may_contribute: str
     confidence: str
     rank: int
+    candidate_role: str = ""
+    evidence_basis: str = ""
 
 
 KeeperConceptSetDomainKey = Literal[

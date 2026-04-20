@@ -65,7 +65,7 @@ def test_service_registry_declares_keeper_expansion_flows() -> None:
 def test_case_causal_review_input_schema() -> None:
     schema = CaseCausalReviewInput.model_json_schema()
     assert "adverse_event_name" in schema["properties"]
-    assert "review_row" in schema["properties"]
+    assert "case_row" in schema["properties"]
     assert "source_type" in schema["properties"]
     assert "allowed_domains" in schema["properties"]
 
@@ -82,4 +82,8 @@ def test_service_registry_declares_case_causal_review_flow() -> None:
         "case_causal_review_sanitize_row",
         "case_causal_review_build_prompt",
         "case_causal_review_parse_response",
+        "get_case_review_concept_set_domain",
+        "get_case_review_drug_signal_details",
+        "get_case_review_drug_label_details",
+        "get_case_review_report_literature_stub",
     ]

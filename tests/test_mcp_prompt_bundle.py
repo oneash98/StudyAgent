@@ -138,17 +138,32 @@ def test_case_causal_review_build_prompt_contains_allowed_domains() -> None:
     payload = fn(
         "Hepatic failure",
         {
-            "observed_items_by_domain": {
-                "drug_exposures": [
-                    {"domain": "drug_exposures", "label": "Valproate", "source_record_id": "drug-1"}
-                ]
+            "case_id": "case-1",
+            "case_summary": "Observed jaundice after exposure.",
+            "index_event": {
+                "domain": "index_event",
+                "label": "Hepatic failure",
+                "source_record_id": "reaction-1",
+                "subrole": "index_event",
             },
-            "context": {"case_summary": "Observed jaundice after exposure."},
-            "domains": ["drug_exposures"],
-            "observed_item_count": 1,
+            "candidate_items": [
+                {
+                    "domain": "drug_exposures",
+                    "label": "Valproate",
+                    "source_record_id": "drug-1",
+                    "subrole": "primary_suspect",
+                    "annotations": {"label_mentions_event": True},
+                }
+            ],
+            "context_items": [],
+            "case_metadata": {},
+            "annotations": {"concept_set_id": "cs-1", "concept_set_version": 2, "concept_set_available_domains": ["drugs"]},
+            "tool_hints": {"available_expansions": ["get_case_review_drug_label_details"], "prefetch_expansions": []},
         },
         "signal_validation",
         ["drug_exposures"],
+        {},
     )
     assert '"adverse_event_name": "Hepatic failure"' in payload["prompt"]
     assert '"allowed_domains": [' in payload["prompt"]
+    assert '"candidate_items": [' in payload["prompt"]

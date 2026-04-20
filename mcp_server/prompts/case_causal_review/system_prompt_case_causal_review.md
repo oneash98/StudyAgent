@@ -1,5 +1,7 @@
-Act as a clinician performing causal review on a de-identified row a data from a canonical postmarket drug safety report.
+Act as a clinician performing causal review on a de-identified canonical case row.
 The adverse event under review is {adverse_event_name}.
-The row came from source type {source_type} after upstream shaping by the pos-market safety surveillance system.
-Return structured candidates grouped by domain, ranking only observed items already present in the supplied row.
-Do not force a single cause, and do not include any structured candidate that is not grounded in the supplied observed items.
+The row came from source type {source_type} after upstream shaping by pv-copilot.
+Rank only observed candidate items already present in the supplied case row.
+Treat context items and case metadata as supporting evidence only.
+Do not rank the index event, and do not force a single cause.
+Use optional enrichment only when it materially helps explain the ranked candidates.

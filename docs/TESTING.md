@@ -396,65 +396,157 @@ curl -s -X POST http://127.0.0.1:8765/flows/phenotype_validation_review \
 ### Case causal review (review a canonical row from a safety surveillance system):
 
 Important:
-- `review_row` must already be in the canonical observed-item format expected by Study Agent
-- structured candidates are limited to observed items present in the supplied row
+- `case_row` must already be in the compact canonical case format expected by Study Agent
+- `candidate_items` are the only structured ranking universe
+- `context_items` and `case_metadata` may influence reasoning and narrative but are not ranked by default
+- `index_event` is assumed to have occurred and must never be ranked as a cause
 - `source_type` must currently be `signal_validation` or `patient_profile`
 - sanitization is fail-closed before any LLM call
+- optional enrichment tools may be hinted via `tool_hints`, but the flow must still work without them
 
-Positive test path using `signal_validation` with `observed_items`:
+Positive test path using `signal_validation` with compact `case_row` and optional tool hints:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8765/flows/case_causal_review   -H 'Content-Type: application/json'   -d '{
-    "adverse_event_name": "Gastrointestinal bleeding",
+    "adverse_event_name": "Cystitis",
     "source_type": "signal_validation",
-    "allowed_domains": ["drug_exposures", "labs"],
-    "review_row": {
-      "case_summary": "Bleeding event after anticoagulant exposure with supratherapeutic INR.",
-      "observed_items": [
+    "allowed_domains": ["drug_exposures", "conditions"],
+    "case_row": {
+      "case_id": "25196051",
+      "case_summary": "Single suspect-drug spontaneous report with cystitis and additional hepatic reactions.",
+      "index_event": {
+        "label": "Cystitis",
+        "source_record_id": "reaction-4",
+        "domain": "index_event",
+        "why_observed": "Selected adverse event present in reported reactions"
+      },
+      "candidate_items": [
         {
           "domain": "drug_exposures",
-          "label": "Warfarin",
+          "label": "Ketamine hydrochloride",
           "source_record_id": "drug-1",
-          "why_observed": "Active exposure before the adverse event"
-        },
-        {
-          "domain": "labs",
-          "label": "INR 4.2",
-          "source_record_id": "lab-1",
-          "why_observed": "Measured close to the adverse event"
+          "source_kind": "reported_drug",
+          "why_observed": "Primary suspect drug in spontaneous report",
+          "subrole": "primary_suspect",
+          "annotations": {
+            "concept_set_match": false,
+            "ingredient_concept_id": 123,
+            "reported_indication": "Substance use",
+            "approved_indications": [],
+            "label_mentions_event": true,
+            "box_warning_mentions_event": false,
+            "has_disproportional_signal": true
+          }
         }
-      ]
+      ],
+      "context_items": [
+        {
+          "domain": "conditions",
+          "label": "Drug abuse",
+          "source_record_id": "reaction-5",
+          "source_kind": "reported_reaction",
+          "why_observed": "Additional reported reaction in same case",
+          "subrole": "contextual_factor",
+          "annotations": {
+            "concept_set_match": false
+          }
+        }
+      ],
+      "case_metadata": {
+        "age": "3 years",
+        "sex": "male",
+        "reporter_type": "health professional",
+        "reporting_country": "GB",
+        "serious": true,
+        "seriousness_flags": ["other"],
+        "literature_reference_present": true,
+        "timing_granularity": "coarse"
+      },
+      "annotations": {
+        "concept_set_id": "uuid",
+        "concept_set_version": 1,
+        "concept_set_available_domains": ["doi", "alternativeDiagnosis", "symptoms", "drugs"]
+      },
+      "tool_hints": {
+        "available_expansions": [
+          "get_case_review_concept_set_domain",
+          "get_case_review_drug_signal_details",
+          "get_case_review_drug_label_details",
+          "get_case_review_report_literature_stub"
+        ],
+        "prefetch_expansions": [
+          "get_case_review_drug_signal_details",
+          "get_case_review_report_literature_stub"
+        ]
+      }
     }
   }' | python -m json.tool
 ```
 
-Positive test path using `patient_profile` with `items_by_domain`:
+Positive test path using `patient_profile` with `candidate_items` and `context_items` kept separate:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8765/flows/case_causal_review   -H 'Content-Type: application/json'   -d '{
     "adverse_event_name": "Hepatic failure",
     "source_type": "patient_profile",
-    "allowed_domains": ["drug_exposures", "conditions"],
-    "review_row": {
-      "case_context": {
-        "setting": "outpatient",
-        "summary": "Progressive liver injury after recent medication changes."
+    "allowed_domains": ["drug_exposures", "conditions", "measurements"],
+    "case_row": {
+      "case_id": "profile-17",
+      "case_summary": "Progressive liver injury after recent medication changes.",
+      "index_event": {
+        "label": "Hepatic failure",
+        "source_record_id": "event-1",
+        "domain": "index_event",
+        "why_observed": "Selected event of interest in the patient profile"
       },
-      "items_by_domain": {
-        "drug_exposures": [
-          {
-            "label": "Valproate",
-            "source_record_id": "drug-17",
-            "detail": "Recent exposure"
+      "candidate_items": [
+        {
+          "domain": "drug_exposures",
+          "label": "Valproate",
+          "source_record_id": "drug-17",
+          "source_kind": "medication_exposure",
+          "why_observed": "Recent active exposure before liver injury",
+          "subrole": "primary_suspect",
+          "annotations": {
+            "label_mentions_event": true,
+            "has_disproportional_signal": false
           }
-        ],
-        "conditions": [
-          {
-            "label": "Chronic liver disease",
-            "source_record_id": "cond-3",
-            "detail": "Pre-existing condition"
+        }
+      ],
+      "context_items": [
+        {
+          "domain": "conditions",
+          "label": "Chronic liver disease",
+          "source_record_id": "cond-3",
+          "source_kind": "condition_occurrence",
+          "why_observed": "Pre-existing condition",
+          "subrole": "vulnerability_factor",
+          "annotations": {
+            "concept_set_match": true
           }
-        ]
+        },
+        {
+          "domain": "measurements",
+          "label": "ALT 622 U/L",
+          "source_record_id": "meas-8",
+          "source_kind": "lab_measurement",
+          "why_observed": "Observed during index event window",
+          "subrole": "proximate_marker",
+          "annotations": {}
+        }
+      ],
+      "case_metadata": {
+        "sex": "female",
+        "timing_granularity": "coarse"
+      },
+      "annotations": {
+        "concept_set_id": "cs-1",
+        "concept_set_version": 2,
+        "concept_set_available_domains": ["drugs", "alternativeDiagnosis"]
+      },
+      "tool_hints": {
+        "available_expansions": ["get_case_review_drug_label_details"],
+        "prefetch_expansions": []
       }
     }
   }' | python -m json.tool
@@ -466,8 +558,14 @@ Validation check for unsupported `source_type`:
 curl -i -s -X POST http://127.0.0.1:8765/flows/case_causal_review   -H 'Content-Type: application/json'   -d '{
     "adverse_event_name": "Gastrointestinal bleeding",
     "source_type": "faers_raw",
-    "review_row": {
-      "observed_items": [
+    "case_row": {
+      "case_id": "case-1",
+      "index_event": {
+        "domain": "index_event",
+        "label": "Gastrointestinal bleeding",
+        "source_record_id": "reaction-1"
+      },
+      "candidate_items": [
         {
           "domain": "drug_exposures",
           "label": "Warfarin",
@@ -478,6 +576,169 @@ curl -i -s -X POST http://127.0.0.1:8765/flows/case_causal_review   -H 'Content-
   }'
 ```
 Expected result: HTTP 400 with `source_type must be signal_validation or patient_profile`.
+
+Direct enrichment tool checks through Study Agent (`/tools/call`):
+
+Assumptions:
+- ACP is running on `http://127.0.0.1:8765`
+- MCP is running with `PV_COPILOT_HOST` and `PV_COPILOT_PORT` already configured
+- dev mode is being used with no pv-copilot auth requirement
+- if you configured `PV_COPILOT_BASE_URL` instead, these commands do not change
+
+Concept-set domain lookup:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+    "name": "get_case_review_concept_set_domain",
+    "arguments": {
+      "concept_set_id": "uuid",
+      "concept_set_version": 1,
+      "domain_name": "doi",
+      "limit": 10
+    }
+  }' | python -m json.tool
+```
+
+Drug signal details lookup:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+    "name": "get_case_review_drug_signal_details",
+    "arguments": {
+      "source_type": "signal_validation",
+      "adverse_event_name": "Cystitis",
+      "source_record_id": "drug-1",
+      "report_lookup_key": {
+        "primaryid": "25196051",
+        "isr": null
+      },
+      "adverse_event_concept_id": 4172256,
+      "ingredient_concept_id": 123,
+      "ingred_rxcui": "11289"
+    }
+  }' | python -m json.tool
+```
+
+Drug label details lookup:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+    "name": "get_case_review_drug_label_details",
+    "arguments": {
+      "source_type": "signal_validation",
+      "adverse_event_name": "Cystitis",
+      "source_record_id": "drug-1",
+      "report_lookup_key": "25196051",
+      "adverse_event_concept_id": 4172256,
+      "adverse_event_meddra_id": "10011735",
+      "ingredient_concept_id": 123,
+      "ingred_rxcui": "11289",
+      "mention_limit": 5
+    }
+  }' | python -m json.tool
+```
+
+Report literature stub lookup:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+    "name": "get_case_review_report_literature_stub",
+    "arguments": {
+      "source_type": "signal_validation",
+      "case_id": "25196051",
+      "report_lookup_key": "25196051"
+    }
+  }' | python -m json.tool
+```
+
+Patient-profile compatibility check for a non-fatal `unsupported` response:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/tools/call   -H 'Content-Type: application/json'   -d '{
+    "name": "get_case_review_drug_signal_details",
+    "arguments": {
+      "source_type": "patient_profile",
+      "adverse_event_name": "Hepatic failure",
+      "source_record_id": "drug-17"
+    }
+  }' | python -m json.tool
+```
+Expected result: tool-level `status` may be `ok`, `not_found`, `unsupported`, or `unavailable`. `unsupported` and `not_found` are valid non-fatal outcomes.
+
+End-to-end flow check with optional enrichment enabled:
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/flows/case_causal_review   -H 'Content-Type: application/json'   -d '{
+    "adverse_event_name": "Cystitis",
+    "source_type": "signal_validation",
+    "allowed_domains": ["drug_exposures", "conditions"],
+    "case_row": {
+      "case_id": "25196051",
+      "case_summary": "Single suspect-drug spontaneous report with cystitis and additional hepatic reactions.",
+      "index_event": {
+        "label": "Cystitis",
+        "source_record_id": "reaction-4",
+        "domain": "index_event",
+        "why_observed": "Selected adverse event present in reported reactions",
+        "annotations": {
+          "adverse_event_meddra_id": "10011735"
+        }
+      },
+      "candidate_items": [
+        {
+          "domain": "drug_exposures",
+          "label": "Ketamine hydrochloride",
+          "source_record_id": "drug-1",
+          "source_kind": "reported_drug",
+          "why_observed": "Primary suspect drug in spontaneous report",
+          "subrole": "primary_suspect",
+          "annotations": {
+            "ingredient_concept_id": 123,
+            "report_lookup_key": "25196051",
+            "label_mentions_event": true,
+            "has_disproportional_signal": true
+          }
+        }
+      ],
+      "context_items": [
+        {
+          "domain": "conditions",
+          "label": "Drug abuse",
+          "source_record_id": "reaction-5",
+          "source_kind": "reported_reaction",
+          "why_observed": "Additional reported reaction in same case",
+          "subrole": "contextual_factor",
+          "annotations": {}
+        }
+      ],
+      "case_metadata": {
+        "literature_reference_present": true,
+        "reporter_type": "health professional",
+        "timing_granularity": "coarse"
+      },
+      "annotations": {
+        "concept_set_id": "uuid",
+        "concept_set_version": 1,
+        "concept_set_available_domains": ["drugs", "symptoms"],
+        "report_lookup_key": "25196051"
+      },
+      "tool_hints": {
+        "available_expansions": [
+          "get_case_review_concept_set_domain",
+          "get_case_review_drug_signal_details",
+          "get_case_review_drug_label_details",
+          "get_case_review_report_literature_stub"
+        ],
+        "prefetch_expansions": [
+          "get_case_review_drug_signal_details",
+          "get_case_review_drug_label_details",
+          "get_case_review_report_literature_stub"
+        ]
+      }
+    }
+  }' | python -m json.tool
+```
+Check `diagnostics.optional_enrichment` in the response to confirm which enrichment tools were called and what they returned.
 
 ### Keeper concept sets generate
 
