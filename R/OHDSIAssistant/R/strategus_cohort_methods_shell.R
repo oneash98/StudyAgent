@@ -2,16 +2,23 @@
 #' @param outputDir directory where scripts and artifacts will be written
 #' @param acpUrl ACP base URL for placeholder cohort-method recommendation calls
 #' @param studyIntent study intent text
+#' @param targetStatement fixed target cohort statement used for phenotype recommendation during development
+#' @param comparatorStatement fixed comparator cohort statement used for phenotype recommendation during development
+#' @param outcomeStatement fixed outcome cohort statement used for phenotype recommendation during development
 #' @param targetCohortId target cohort definition ID
 #' @param comparatorCohortId comparator cohort definition ID
 #' @param outcomeCohortIds outcome cohort definition IDs
 #' @param comparisonLabel optional label for the target-comparator comparison
+#' @param topK number of candidates retrieved from MCP search
+#' @param maxResults max phenotypes to show
+#' @param candidateLimit max candidates to pass to LLM
 #' @param indexDir phenotype index directory (contains definitions/ and catalog.jsonl)
 #' @param negativeControlConceptSetId optional negative control concept set ID
 #' @param includeCovariateConceptSetId optional covariate include concept set ID
 #' @param excludeCovariateConceptSetId optional covariate exclude concept set ID
 #' @param analyticSettingsDescription optional free-text analytic settings description
 #' @param analyticSettingsDescriptionPath optional path to a text file containing the free-text analytic settings description
+#' @param incidenceOutputDir optional Strategus CohortIncidence output directory used for cached target/outcome cohort reuse
 #' @param interactive whether to prompt for missing inputs
 #' @param bannerPath optional path to ASCII banner
 #' @param studyAgentBaseDir base directory to resolve relative paths
@@ -26,16 +33,23 @@
 runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-methods",
                                            acpUrl = "http://127.0.0.1:8765",
                                            studyIntent = NULL,
+                                           targetStatement = NULL,
+                                           comparatorStatement = NULL,
+                                           outcomeStatement = NULL,
                                            targetCohortId = NULL,
                                            comparatorCohortId = NULL,
                                            outcomeCohortIds = NULL,
                                            comparisonLabel = NULL,
+                                           topK = 20,
+                                           maxResults = 20,
+                                           candidateLimit = 20,
                                            indexDir = Sys.getenv("PHENOTYPE_INDEX_DIR", "data/phenotype_index"),
                                            negativeControlConceptSetId = NULL,
                                            includeCovariateConceptSetId = NULL,
                                            excludeCovariateConceptSetId = NULL,
                                            analyticSettingsDescription = NULL,
                                            analyticSettingsDescriptionPath = NULL,
+                                           incidenceOutputDir = "demo-strategus-cohort-incidence",
                                            interactive = TRUE,
                                            bannerPath = "ohdsi-logo-ascii.txt",
                                            studyAgentBaseDir = Sys.getenv("STUDY_AGENT_BASE_DIR", ""),
@@ -96,6 +110,15 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       return(as.integer(pieces))
     }
     integer(0)
+  }
+
+  normalize_selected_ids <- function(value, label, allow_multiple = FALSE) {
+    ids <- unique(parse_ids(value))
+    ids <- as.integer(ids[!is.na(ids)])
+    if (!isTRUE(allow_multiple) && length(ids) > 1) {
+      stop(sprintf("%s must contain exactly one cohort ID.", label))
+    }
+    ids
   }
 
   collect_single_id <- function(value, label) {
@@ -334,6 +357,296 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       if (!is.null(value) && nzchar(trimws(value))) return(value)
     }
     fallback %||% sprintf("Cohort %s", cohort_id)
+  }
+
+  format_cohort_selection_summary <- function(selected_ids, catalog_df) {
+    ids <- as.integer(unique(selected_ids[!is.na(selected_ids)]))
+    if (length(ids) == 0) return(NULL)
+    labels <- vapply(ids, function(id) {
+      sprintf(
+        "%s (ID %s)",
+        lookup_catalog_value(id, catalog_df, "name", sprintf("Cohort %s", id)),
+        id
+      )
+    }, character(1))
+    paste(labels, collapse = ", ")
+  }
+
+  cache_label_with_selection <- function(label, selected_ids, catalog_df) {
+    selection_summary <- format_cohort_selection_summary(selected_ids, catalog_df)
+    if (is.null(selection_summary) || !nzchar(trimws(selection_summary))) return(label)
+    sprintf("%s [%s]", label, selection_summary)
+  }
+
+  load_cached_role_selection <- function(map_path, role, role_dir) {
+    if (!file.exists(map_path) || !dir.exists(role_dir)) return(NULL)
+    payload <- tryCatch(read_json(map_path), error = function(e) NULL)
+    if (is.null(payload)) return(NULL)
+    mapping <- payload$mapping %||% payload
+    is_row_mapping <- is.list(mapping) &&
+      length(mapping) > 0 &&
+      is.list(mapping[[1]]) &&
+      any(names(mapping[[1]]) %in% c("role", "original_id", "cohort_id"))
+    if (isTRUE(is_row_mapping)) {
+      roles <- vapply(mapping, function(item) as.character(item$role %||% NA_character_), character(1))
+      original_ids <- vapply(mapping, function(item) as.integer(item$original_id %||% NA_integer_), integer(1))
+      cohort_ids <- vapply(mapping, function(item) as.integer(item$cohort_id %||% NA_integer_), integer(1))
+    } else {
+      roles <- as.character(unlist(mapping$role %||% character(0), use.names = FALSE))
+      original_ids <- as.integer(unlist(mapping$original_id %||% integer(0), use.names = FALSE))
+      cohort_ids <- as.integer(unlist(mapping$cohort_id %||% integer(0), use.names = FALSE))
+    }
+    if (!length(roles) || length(roles) != length(original_ids) || length(roles) != length(cohort_ids)) {
+      return(NULL)
+    }
+    keep <- which(roles == role & !is.na(original_ids) & !is.na(cohort_ids))
+    if (length(keep) == 0) return(NULL)
+    selected_ids <- as.integer(unique(original_ids[keep]))
+    new_ids <- as.integer(cohort_ids[keep])
+    cached_files <- file.path(role_dir, sprintf("%s.json", new_ids))
+    if (!all(file.exists(cached_files))) return(NULL)
+    list(selected_ids = selected_ids, new_ids = new_ids)
+  }
+
+  prompt_statement <- function(label, default = NULL) {
+    if (!isTRUE(interactive)) return(default)
+    default_value <- trimws(as.character(default %||% ""))
+    entered <- readline(sprintf("%s statement [%s]: ", label, default_value))
+    if (nzchar(trimws(entered))) trimws(entered) else default_value
+  }
+
+  ensure_acp_ready <- function(url) {
+    has_acp_state <- exists("acp_state", inherits = TRUE)
+    has_acp_connect <- exists("acp_connect", mode = "function", inherits = TRUE)
+    has_acp_post <- exists(".acp_post", mode = "function", inherits = TRUE)
+    if (!has_acp_state || !has_acp_connect || !has_acp_post) return(FALSE)
+    acp_state_value <- get("acp_state", inherits = TRUE)
+    if (!is.null(acp_state_value$url)) return(TRUE)
+    if (is.null(url) || !nzchar(trimws(url))) return(FALSE)
+    tryCatch({
+      acp_connect(url)
+      TRUE
+    }, error = function(e) {
+      FALSE
+    })
+  }
+
+  collect_recommendation_selection <- function(recommendations, role_label, allow_multiple = FALSE) {
+    if (length(recommendations) == 0) return(integer(0))
+    if (!isTRUE(interactive)) {
+      if (isTRUE(allow_multiple)) {
+        return(as.integer(vapply(recommendations, function(rec) rec$cohortId %||% NA_integer_, integer(1))))
+      }
+      return(as.integer(recommendations[[1]]$cohortId %||% NA_integer_))
+    }
+
+    labels <- vapply(seq_along(recommendations), function(i) {
+      rec <- recommendations[[i]]
+      sprintf("%s (ID %s)", rec$cohortName %||% "<unknown>", rec$cohortId %||% "?")
+    }, character(1))
+    picks <- utils::select.list(
+      labels,
+      multiple = isTRUE(allow_multiple),
+      title = sprintf("Select %s phenotype%s", tolower(role_label), if (isTRUE(allow_multiple)) "s" else "")
+    )
+    if (!length(picks) || !any(nzchar(picks))) return(integer(0))
+    selected_ids <- vapply(picks, function(label) {
+      idx <- which(labels == label)[1]
+      recommendations[[idx]]$cohortId %||% NA_integer_
+    }, numeric(1))
+    as.integer(selected_ids[!is.na(selected_ids)])
+  }
+
+  run_role_recommendation <- function(role_label,
+                                      statement,
+                                      output_path,
+                                      top_k,
+                                      max_results,
+                                      candidate_limit,
+                                      allow_multiple = FALSE,
+                                      preferred_selected_ids = NULL,
+                                      preferred_selection_source = "manual_input",
+                                      cached_selected_ids = NULL,
+                                      selected_cache_label = NULL,
+                                      selected_cache_dir = NULL,
+                                      cohort_method_cache = NULL,
+                                      incidence_cache = NULL) {
+    role_key <- tolower(role_label)
+    preferred_selected_ids <- normalize_selected_ids(
+      preferred_selected_ids,
+      sprintf("%s cohort ID%s", role_label, if (isTRUE(allow_multiple)) "s" else ""),
+      allow_multiple = allow_multiple
+    )
+    if (length(preferred_selected_ids) > 0) {
+      return(list(
+        selected_ids = preferred_selected_ids,
+        selection_source = preferred_selection_source %||% "manual_input",
+        recommendation_path = json_string_or_null(if (file.exists(output_path)) output_path else NULL),
+        recommendation_source = "not_run",
+        used_cached_recommendation = FALSE,
+        used_cached_selection = FALSE,
+        used_window2 = FALSE,
+        used_advice = FALSE,
+        statement = statement
+      ))
+    }
+    selected_cache_ok <- !is.null(cohort_method_cache$selection$selected_ids) &&
+      length(cohort_method_cache$selection$selected_ids) > 0 &&
+      !is.null(cohort_method_cache$selection$cache_dir) &&
+      dir.exists(cohort_method_cache$selection$cache_dir)
+    if (isTRUE(selected_cache_ok)) {
+      cached_selected_ids <- as.integer(unique(cohort_method_cache$selection$selected_ids))
+      if (maybe_use_cache(
+        cohort_method_cache$selection$cache_dir,
+        cache_label_with_selection(
+          selected_cache_label %||% sprintf("%s cohort selection", role_key),
+          cached_selected_ids,
+          catalog_df
+        )
+      )) {
+        return(list(
+          selected_ids = cached_selected_ids,
+          selection_source = "cohort_method_cached_selected_cohort",
+          recommendation_path = json_string_or_null(if (file.exists(output_path)) output_path else NULL),
+          recommendation_source = if (file.exists(output_path)) "cached_recommendation" else "cached_selected_cohort_only",
+          used_cached_recommendation = FALSE,
+          used_cached_selection = TRUE,
+          used_window2 = FALSE,
+          used_advice = FALSE,
+          statement = statement
+        ))
+      }
+    }
+    incidence_cache_ok <- !is.null(incidence_cache$selection$selected_ids) &&
+      length(incidence_cache$selection$selected_ids) > 0 &&
+      !is.null(incidence_cache$selection$cache_dir) &&
+      dir.exists(incidence_cache$selection$cache_dir)
+    if (!isTRUE(selected_cache_ok) && isTRUE(incidence_cache_ok)) {
+      incidence_selected_ids <- as.integer(unique(incidence_cache$selection$selected_ids))
+      if (maybe_use_cache(
+        incidence_cache$selection$cache_dir,
+        cache_label_with_selection(
+          incidence_cache$selection$label %||% sprintf("incidence %s cohort selection", role_key),
+          incidence_selected_ids,
+          catalog_df
+        )
+      )) {
+        return(list(
+          selected_ids = incidence_selected_ids,
+          selection_source = "incidence_cached_selected_cohort",
+          recommendation_path = json_string_or_null(if (file.exists(output_path)) output_path else NULL),
+          recommendation_source = "incidence_cached_selected_cohort_only",
+          used_cached_recommendation = FALSE,
+          used_cached_selection = TRUE,
+          used_window2 = FALSE,
+          used_advice = FALSE,
+          statement = statement
+        ))
+      }
+    }
+
+    recommendation_response <- NULL
+    recommendation_path <- output_path
+    used_cached_recommendation <- FALSE
+    used_window2 <- FALSE
+    used_advice <- FALSE
+
+    if (maybe_use_cache(output_path, sprintf("%s recommendations", role_key))) {
+      recommendation_response <- read_json(output_path)
+      used_cached_recommendation <- TRUE
+    } else if (ensure_acp_ready(acpUrl)) {
+      body <- list(
+        study_intent = statement,
+        top_k = top_k,
+        max_results = max_results,
+        candidate_limit = candidate_limit
+      )
+      message(sprintf("Calling ACP flow: phenotype_recommendation (%s)", role_key))
+      recommendation_response <- tryCatch(
+        .acp_post("/flows/phenotype_recommendation", body),
+        error = function(e) {
+          list(status = "error", error = conditionMessage(e))
+        }
+      )
+      write_json(recommendation_response, output_path)
+    }
+
+    recommendations_core <- recommendation_response$recommendations %||% recommendation_response
+    recommendations <- recommendations_core$phenotype_recommendations %||% list()
+
+    if (isTRUE(interactive) && length(recommendations) > 0) {
+      cat(sprintf("\n== %s Phenotype Recommendations ==\n", role_label))
+      for (i in seq_along(recommendations)) {
+        rec <- recommendations[[i]]
+        cat(sprintf("%d. %s (ID %s)\n", i, rec$cohortName %||% "<unknown>", rec$cohortId %||% "?"))
+        if (!is.null(rec$justification)) cat(sprintf("   %s\n", rec$justification))
+      }
+      ok_any <- prompt_yesno(sprintf("Are any of these acceptable for the %s?", role_key), default = TRUE)
+      if (!ok_any && ensure_acp_ready(acpUrl)) {
+        widen <- prompt_yesno("Widen candidate pool and try again?", default = TRUE)
+        if (isTRUE(widen)) {
+          used_window2 <- TRUE
+          recommendation_path <- file.path(dirname(output_path), sprintf("%s_window2.json", tools::file_path_sans_ext(basename(output_path))))
+          body <- list(
+            study_intent = statement,
+            top_k = top_k,
+            max_results = max_results,
+            candidate_limit = candidate_limit,
+            candidate_offset = candidate_limit
+          )
+          message(sprintf("Calling ACP flow: phenotype_recommendation (%s window 2)", role_key))
+          recommendation_response <- tryCatch(
+            .acp_post("/flows/phenotype_recommendation", body),
+            error = function(e) {
+              list(status = "error", error = conditionMessage(e))
+            }
+          )
+          write_json(recommendation_response, recommendation_path)
+          recommendations_core <- recommendation_response$recommendations %||% recommendation_response
+          recommendations <- recommendations_core$phenotype_recommendations %||% list()
+          cat(sprintf("\n== %s Phenotype Recommendations (window 2) ==\n", role_label))
+          for (i in seq_along(recommendations)) {
+            rec <- recommendations[[i]]
+            cat(sprintf("%d. %s (ID %s)\n", i, rec$cohortName %||% "<unknown>", rec$cohortId %||% "?"))
+            if (!is.null(rec$justification)) cat(sprintf("   %s\n", rec$justification))
+          }
+          ok_any <- prompt_yesno(sprintf("Are any of these acceptable for the %s?", role_key), default = TRUE)
+        }
+        if (!ok_any) {
+          used_advice <- TRUE
+          message(sprintf("Calling ACP flow: phenotype_recommendation_advice (%s)", role_key))
+          advice <- tryCatch(
+            .acp_post("/flows/phenotype_recommendation_advice", list(study_intent = statement)),
+            error = function(e) {
+              list(status = "error", error = conditionMessage(e))
+            }
+          )
+          advice_core <- advice$advice %||% advice
+          cat("\n== Advisory guidance ==\n")
+          cat(advice_core$advice %||% "", "\n")
+          if (length(advice_core$next_steps %||% list()) > 0) {
+            cat("Next steps:\n")
+            for (step in advice_core$next_steps) cat(sprintf("  - %s\n", step))
+          }
+          recommendations <- list()
+        }
+      }
+    }
+
+    selected_ids <- collect_recommendation_selection(recommendations, role_label, allow_multiple = allow_multiple)
+    selected_ids <- as.integer(unique(selected_ids[!is.na(selected_ids)]))
+
+    list(
+      selected_ids = selected_ids,
+      selection_source = if (length(selected_ids) > 0) "recommendation" else "none",
+      recommendation_path = json_string_or_null(if (file.exists(recommendation_path)) recommendation_path else NULL),
+      recommendation_source = if (used_cached_recommendation) "cached_recommendation" else if (!is.null(recommendation_response)) "acp_flow" else "not_run",
+      used_cached_recommendation = isTRUE(used_cached_recommendation),
+      used_cached_selection = FALSE,
+      used_window2 = isTRUE(used_window2),
+      used_advice = isTRUE(used_advice),
+      statement = statement
+    )
   }
 
   copy_cohort_json_multi <- function(source_id, dest_id, dest_dirs, index_def_dir) {
@@ -789,8 +1102,11 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   }
 
   base_dir <- outputDir
+  incidence_base_dir <- resolve_path(incidenceOutputDir, study_base_dir)
+  incidence_base_dir <- normalizePath(incidence_base_dir, winslash = "/", mustWork = FALSE)
   index_dir <- resolve_path(indexDir, study_base_dir)
   index_dir <- normalizePath(index_dir, winslash = "/", mustWork = FALSE)
+  catalog_df <- load_catalog(index_dir)
   analytic_settings_description_path_resolved <- if (is.null(analyticSettingsDescriptionPath)) {
     NULL
   } else {
@@ -833,6 +1149,9 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   manual_inputs_path <- file.path(output_dir, "manual_inputs.json")
   cohort_roles_path <- file.path(output_dir, "cohort_roles.json")
   cohort_id_map_path <- file.path(output_dir, "cohort_id_map.json")
+  incidence_cohort_id_map_path <- file.path(incidence_base_dir, "outputs", "cohort_id_map.json")
+  incidence_selected_target_dir <- file.path(incidence_base_dir, "selected-target-cohorts")
+  incidence_selected_outcome_dir <- file.path(incidence_base_dir, "selected-outcome-cohorts")
   cm_comparisons_path <- file.path(output_dir, "cm_comparisons.json")
   improvements_status_path <- file.path(output_dir, "improvements_status.json")
   cm_evaluation_todo_path <- file.path(output_dir, "cm_evaluation_todo.json")
@@ -841,12 +1160,24 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   cm_acp_specifications_recommendation_path <- file.path(output_dir, "cm_acp_specifications_recommendation.json")
   cm_analytic_settings_recommendation_path <- file.path(output_dir, "cm_analytic_settings_recommendation.json")
   cm_concept_set_selections_path <- file.path(output_dir, "cm_concept_set_selections.json")
+  recs_target_path <- file.path(output_dir, "recommendations_target.json")
+  recs_comparator_path <- file.path(output_dir, "recommendations_comparator.json")
+  recs_outcome_path <- file.path(output_dir, "recommendations_outcome.json")
   state_path <- file.path(output_dir, "study_agent_state.json")
 
   cached_inputs <- NULL
   if (maybe_use_cache(manual_inputs_path, "manual cohort-method inputs")) {
     cached_inputs <- jsonlite::fromJSON(manual_inputs_path, simplifyVector = TRUE)
   }
+  cached_manual_intent <- NULL
+  if (maybe_use_cache(manual_intent_path, "manual cohort-method statements")) {
+    cached_manual_intent <- read_json(manual_intent_path)
+  }
+  cached_cm_target_selection <- load_cached_role_selection(cohort_id_map_path, "target", selected_target_dir)
+  cached_cm_comparator_selection <- load_cached_role_selection(cohort_id_map_path, "comparator", selected_comparator_dir)
+  cached_cm_outcome_selection <- load_cached_role_selection(cohort_id_map_path, "outcome", selected_outcome_dir)
+  cached_incidence_target_selection <- load_cached_role_selection(incidence_cohort_id_map_path, "target", incidence_selected_target_dir)
+  cached_incidence_outcome_selection <- load_cached_role_selection(incidence_cohort_id_map_path, "outcome", incidence_selected_outcome_dir)
 
   if (interactive) {
     banner_path <- resolve_path(bannerPath, study_base_dir)
@@ -874,9 +1205,126 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     studyIntent <- default_intent
   }
 
-  targetCohortId <- collect_single_id(targetCohortId %||% cached_inputs$target_cohort_id, "Target")
-  comparatorCohortId <- collect_single_id(comparatorCohortId %||% cached_inputs$comparator_cohort_id, "Comparator")
-  outcomeCohortIds <- collect_outcome_ids(outcomeCohortIds %||% cached_inputs$outcome_cohort_ids)
+  target_statement_default <- targetStatement %||%
+    cached_manual_intent$target_statement %||%
+    cached_inputs$target_statement %||%
+    "Patients with a metformin prescription."
+  comparator_statement_default <- comparatorStatement %||%
+    cached_manual_intent$comparator_statement %||%
+    cached_inputs$comparator_statement %||%
+    "Patients with a sulfonylurea prescription."
+  outcome_statement_default <- outcomeStatement %||%
+    cached_manual_intent$outcome_statement %||%
+    cached_inputs$outcome_statement %||%
+    "Gastrointestinal bleeding."
+
+  if (isTRUE(interactive)) {
+    cat("\nStudy intent split is deferred for cohort methods. Using fixed target/comparator/outcome statements for development.\n")
+  }
+  targetStatement <- prompt_statement("Target", default = target_statement_default)
+  comparatorStatement <- prompt_statement("Comparator", default = comparator_statement_default)
+  outcomeStatement <- prompt_statement("Outcome", default = outcome_statement_default)
+
+  target_rec <- run_role_recommendation(
+    role_label = "Target",
+    statement = targetStatement,
+    output_path = recs_target_path,
+    top_k = topK,
+    max_results = maxResults,
+    candidate_limit = candidateLimit,
+    allow_multiple = FALSE,
+    preferred_selected_ids = targetCohortId,
+    preferred_selection_source = "function_argument",
+    cached_selected_ids = cached_inputs$target_cohort_id %||% NULL,
+    selected_cache_label = "target cohort selection",
+    selected_cache_dir = selected_target_dir,
+    cohort_method_cache = list(
+      selection = list(
+        selected_ids = cached_cm_target_selection$selected_ids %||% NULL,
+        cache_dir = selected_target_dir
+      )
+    ),
+    incidence_cache = list(
+      selection = list(
+        selected_ids = cached_incidence_target_selection$selected_ids %||% NULL,
+        cache_dir = incidence_selected_target_dir,
+        label = "incidence target cohort selection"
+      )
+    )
+  )
+  comparator_rec <- run_role_recommendation(
+    role_label = "Comparator",
+    statement = comparatorStatement,
+    output_path = recs_comparator_path,
+    top_k = topK,
+    max_results = maxResults,
+    candidate_limit = candidateLimit,
+    allow_multiple = FALSE,
+    preferred_selected_ids = comparatorCohortId,
+    preferred_selection_source = "function_argument",
+    cached_selected_ids = cached_inputs$comparator_cohort_id %||% NULL,
+    selected_cache_label = "comparator cohort selection",
+    selected_cache_dir = selected_comparator_dir,
+    cohort_method_cache = list(
+      selection = list(
+        selected_ids = cached_cm_comparator_selection$selected_ids %||% NULL,
+        cache_dir = selected_comparator_dir
+      )
+    ),
+    incidence_cache = list(
+      selection = list(
+        selected_ids = NULL,
+        cache_dir = NULL,
+        label = NULL
+      )
+    )
+  )
+  outcome_rec <- run_role_recommendation(
+    role_label = "Outcome",
+    statement = outcomeStatement,
+    output_path = recs_outcome_path,
+    top_k = topK,
+    max_results = maxResults,
+    candidate_limit = candidateLimit,
+    allow_multiple = TRUE,
+    preferred_selected_ids = outcomeCohortIds,
+    preferred_selection_source = "function_argument",
+    cached_selected_ids = cached_inputs$outcome_cohort_ids %||% NULL,
+    selected_cache_label = "outcome cohort selections",
+    selected_cache_dir = selected_outcome_dir,
+    cohort_method_cache = list(
+      selection = list(
+        selected_ids = cached_cm_outcome_selection$selected_ids %||% NULL,
+        cache_dir = selected_outcome_dir
+      )
+    ),
+    incidence_cache = list(
+      selection = list(
+        selected_ids = cached_incidence_outcome_selection$selected_ids %||% NULL,
+        cache_dir = incidence_selected_outcome_dir,
+        label = "incidence outcome cohort selection"
+      )
+    )
+  )
+
+  targetCohortId <- if (length(target_rec$selected_ids) > 0) {
+    as.integer(target_rec$selected_ids[[1]])
+  } else {
+    collect_single_id(targetCohortId %||% cached_inputs$target_cohort_id, "Target")
+  }
+  if (!length(target_rec$selected_ids)) target_rec$selection_source <- "manual_input"
+  comparatorCohortId <- if (length(comparator_rec$selected_ids) > 0) {
+    as.integer(comparator_rec$selected_ids[[1]])
+  } else {
+    collect_single_id(comparatorCohortId %||% cached_inputs$comparator_cohort_id, "Comparator")
+  }
+  if (!length(comparator_rec$selected_ids)) comparator_rec$selection_source <- "manual_input"
+  outcomeCohortIds <- if (length(outcome_rec$selected_ids) > 0) {
+    as.integer(outcome_rec$selected_ids)
+  } else {
+    collect_outcome_ids(outcomeCohortIds %||% cached_inputs$outcome_cohort_ids)
+  }
+  if (!length(outcome_rec$selected_ids)) outcome_rec$selection_source <- "manual_input"
 
   validate_manual_ids <- function(target_id, comparator_id, outcome_ids) {
     if (target_id == comparator_id) {
@@ -914,7 +1362,6 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     stop(validation_error)
   }
 
-  catalog_df <- load_catalog(index_dir)
   target_name <- lookup_catalog_value(targetCohortId, catalog_df, "name", sprintf("Target cohort %s", targetCohortId))
   comparator_name <- lookup_catalog_value(comparatorCohortId, catalog_df, "name", sprintf("Comparator cohort %s", comparatorCohortId))
   outcome_names <- vapply(
@@ -1365,23 +1812,53 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   }
 
   manual_intent <- list(
-    source = "manual_input",
+    source = "fixed_statements",
     study_intent = studyIntent,
-    target_statement = sprintf("TODO via ACP phenotype_intent_split. Manual target cohort: %s (%s).", target_name, targetCohortId),
-    comparator_statement = sprintf("TODO via ACP comparator recommendation. Manual comparator cohort: %s (%s).", comparator_name, comparatorCohortId),
-    outcome_statement = sprintf(
-      "TODO via ACP phenotype recommendation. Manual outcomes: %s.",
-      paste(sprintf("%s (%s)", outcome_names, outcomeCohortIds), collapse = "; ")
-    )
+    target_statement = targetStatement,
+    comparator_statement = comparatorStatement,
+    outcome_statement = outcomeStatement
   )
   write_json(manual_intent, manual_intent_path)
 
   manual_inputs <- list(
     study_intent = studyIntent,
+    target_statement = targetStatement,
+    comparator_statement = comparatorStatement,
+    outcome_statement = outcomeStatement,
     comparison_label = comparisonLabel,
     target_cohort_id = as.integer(targetCohortId),
     comparator_cohort_id = as.integer(comparatorCohortId),
     outcome_cohort_ids = as.integer(outcomeCohortIds),
+    target_recommendation = list(
+      statement = targetStatement,
+      path = json_string_or_null(target_rec$recommendation_path),
+      source = target_rec$recommendation_source,
+      selection_source = target_rec$selection_source,
+      used_cached_recommendation = isTRUE(target_rec$used_cached_recommendation),
+      used_cached_selection = isTRUE(target_rec$used_cached_selection),
+      used_window2 = isTRUE(target_rec$used_window2),
+      used_advice = isTRUE(target_rec$used_advice)
+    ),
+    comparator_recommendation = list(
+      statement = comparatorStatement,
+      path = json_string_or_null(comparator_rec$recommendation_path),
+      source = comparator_rec$recommendation_source,
+      selection_source = comparator_rec$selection_source,
+      used_cached_recommendation = isTRUE(comparator_rec$used_cached_recommendation),
+      used_cached_selection = isTRUE(comparator_rec$used_cached_selection),
+      used_window2 = isTRUE(comparator_rec$used_window2),
+      used_advice = isTRUE(comparator_rec$used_advice)
+    ),
+    outcome_recommendation = list(
+      statement = outcomeStatement,
+      path = json_string_or_null(outcome_rec$recommendation_path),
+      source = outcome_rec$recommendation_source,
+      selection_source = outcome_rec$selection_source,
+      used_cached_recommendation = isTRUE(outcome_rec$used_cached_recommendation),
+      used_cached_selection = isTRUE(outcome_rec$used_cached_selection),
+      used_window2 = isTRUE(outcome_rec$used_window2),
+      used_advice = isTRUE(outcome_rec$used_advice)
+    ),
     negative_control_enabled = isTRUE(negative_control_enabled),
     negative_control_concept_set_id = json_int_or_null(negativeControlConceptSetId),
     covariate_concept_sets_enabled = isTRUE(covariate_enabled),
@@ -1507,11 +1984,19 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   write_json(cm_evaluation_todo, cm_evaluation_todo_path)
 
   acp_mcp_todo <- list(
-    status = "todo",
+    status = "in_progress",
     acp = list(
-      phenotype_intent_split = "TODO",
-      phenotype_recommendation = "TODO",
-      phenotype_recommendation_advice = "TODO",
+      phenotype_intent_split = "DEFERRED_FIXED_STATEMENTS_IN_USE",
+      phenotype_recommendation = list(
+        target = if (length(targetCohortId) == 1) "COMPLETED" else "FALLBACK_MANUAL",
+        comparator = if (length(comparatorCohortId) == 1) "COMPLETED" else "FALLBACK_MANUAL",
+        outcome = if (length(outcomeCohortIds) > 0) "COMPLETED" else "FALLBACK_MANUAL"
+      ),
+      phenotype_recommendation_advice = list(
+        target = if (isTRUE(target_rec$used_advice)) "USED" else "NOT_USED",
+        comparator = if (isTRUE(comparator_rec$used_advice)) "USED" else "NOT_USED",
+        outcome = if (isTRUE(outcome_rec$used_advice)) "USED" else "NOT_USED"
+      ),
       phenotype_improvements = "TODO",
       cohort_methods_specifications_recommendation = "STUB_CALLED_FROM_R_SHELL"
     ),
@@ -1519,7 +2004,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       comparator_setting_reuse = "TODO",
       phenotype_index_search = "TODO"
     ),
-    note = "This shell currently uses manual cohort IDs and local phenotype index artifacts only."
+    note = "Study intent split is deferred; this shell currently uses fixed target/comparator/outcome statements and cached recommendation artifacts during development."
   )
   write_json(acp_mcp_todo, acp_mcp_todo_path)
 
@@ -1636,6 +2121,9 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
 
   state <- list(
     study_intent = studyIntent,
+    target_statement = targetStatement,
+    comparator_statement = comparatorStatement,
+    outcome_statement = outcomeStatement,
     comparison_label = comparisonLabel,
     output_dir = output_dir,
     selected_dir = selected_dir,
@@ -1688,6 +2176,21 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     covariate_include_all_concepts = isTRUE(include_all_covariates),
     covariate_include_concept_set_id = json_int_or_null(includeCovariateConceptSetId),
     covariate_exclude_concept_set_id = json_int_or_null(excludeCovariateConceptSetId),
+    target_recommendation_path = json_string_or_null(target_rec$recommendation_path),
+    comparator_recommendation_path = json_string_or_null(comparator_rec$recommendation_path),
+    outcome_recommendation_path = json_string_or_null(outcome_rec$recommendation_path),
+    target_recommendation_source = target_rec$recommendation_source,
+    comparator_recommendation_source = comparator_rec$recommendation_source,
+    outcome_recommendation_source = outcome_rec$recommendation_source,
+    target_selection_source = target_rec$selection_source,
+    comparator_selection_source = comparator_rec$selection_source,
+    outcome_selection_source = outcome_rec$selection_source,
+    target_used_cached_recommendation = isTRUE(target_rec$used_cached_recommendation),
+    comparator_used_cached_recommendation = isTRUE(comparator_rec$used_cached_recommendation),
+    outcome_used_cached_recommendation = isTRUE(outcome_rec$used_cached_recommendation),
+    target_used_cached_selection = isTRUE(target_rec$used_cached_selection),
+    comparator_used_cached_selection = isTRUE(comparator_rec$used_cached_selection),
+    outcome_used_cached_selection = isTRUE(outcome_rec$used_cached_selection),
     target_ids = as.integer(new_target_id),
     comparator_ids = as.integer(new_comparator_id),
     outcome_ids = as.integer(new_outcome_ids)
