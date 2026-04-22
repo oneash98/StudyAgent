@@ -162,3 +162,24 @@ services:
       - questions
     validation:
       - core.phenotype_intent_split schema validation
+
+  cohort_methods_specifications_recommendation:
+    endpoint: /flows/cohort_methods_specifications_recommendation
+    mcp_tools:
+      - cohort_methods_prompt_bundle
+    input:
+      - analytic_settings_description
+      - study_intent
+      - current_specifications
+      - cohort_definitions
+      - negative_control_concept_set
+      - covariate_selection
+    output:
+      - specifications
+      - sectionRationales
+      - diagnostics
+    validation:
+      - core.theseus_validation.validate_theseus_spec (top-level structure)
+      - core.theseus_validation.validate_section (enum + range checks)
+      - core.theseus_validation.merge_client_metadata (client IDs override LLM)
+      - core.theseus_validation.backfill_section_from_defaults (per-section fallback)
