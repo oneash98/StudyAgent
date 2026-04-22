@@ -63,3 +63,32 @@ It generates scripts under `demo-strategus-cohort-incidence/scripts/` following 
 4. `04_keeper_review.R`
 5. `05_diagnostics.R`
 6. `06_incidence_spec.R`
+
+## Suggesting Cohort Method Specifications
+
+```r
+library(OHDSIAssistant)
+
+acp_connect("http://127.0.0.1:8765")
+
+res <- suggestCohortMethodSpecs(
+  analyticSettingsDescription = "Compare sitagliptin vs glipizide users; 365-day washout; ITT follow-up.",
+  cohortDefinitions = list(
+    targetCohort     = list(id = 1, name = "Sitagliptin new users"),
+    comparatorCohort = list(id = 2, name = "Glipizide new users"),
+    outcomeCohort    = list(list(id = 3, name = "Acute MI"))
+  ),
+  negativeControlConceptSet = list(id = 99, name = "Standard NC set"),
+  covariateSelection = list(conceptsToInclude = list(), conceptsToExclude = list())
+)
+
+# Returned list contains: status, specifications (Theseus-shaped),
+# sectionRationales (per-section confidence + rationale), diagnostics.
+str(res, max.level = 2)
+
+# Iterative refinement: feed the prior spec back in.
+res2 <- suggestCohortMethodSpecs(
+  analyticSettingsDescription = "Also add a PS stratification alternative.",
+  currentSpecifications = res$specifications
+)
+```
