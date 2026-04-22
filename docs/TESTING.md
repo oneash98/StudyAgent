@@ -7,10 +7,16 @@ This repo uses lightweight CLI smoke tests for the ACP and MCP layers. Keep thes
 Install the repo in editable mode so the CLI entrypoints are on your PATH and changes take effect immediately:
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 Editable mode means Python imports the local source tree directly. You do not need to reinstall after edits; just re-run the commands. Manage this per environment (venv/conda) and remove with `pip uninstall study-agent` if needed.
+
+Dependency notes:
+
+- `pyproject.toml` is the source of truth for the Python package and the optional `dev` extras.
+- `environment.yml` bootstraps the Conda or Micromamba environment used by Docker and many local setups.
+- `uv.lock` is intentionally not tracked. If you prefer `uv`, generate a local lockfile after cloning with `uv lock`.
 
 ## Test output verbosity
 

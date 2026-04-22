@@ -105,7 +105,8 @@ def test_vocab_add_nonchildren_merges_and_skips_descendants() -> None:
 
 
 @pytest.mark.mcp
-def test_vocab_search_standard_reports_unconfigured_provider() -> None:
+def test_vocab_search_standard_reports_unconfigured_provider(monkeypatch) -> None:
+    monkeypatch.delenv("VOCAB_SEARCH_PROVIDER", raising=False)
     tools = _registered_tools()
     result = tools["vocab_search_standard"](
         query="GI bleed",
@@ -119,7 +120,8 @@ def test_vocab_search_standard_reports_unconfigured_provider() -> None:
 
 
 @pytest.mark.mcp
-def test_phoebe_related_concepts_reports_unconfigured_provider() -> None:
+def test_phoebe_related_concepts_reports_unconfigured_provider(monkeypatch) -> None:
+    monkeypatch.delenv("PHOEBE_PROVIDER", raising=False)
     tools = _registered_tools()
     result = tools["phoebe_related_concepts"](
         concept_ids=[1, 2],

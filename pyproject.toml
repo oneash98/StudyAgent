@@ -14,6 +14,12 @@ dependencies = [
   "PyYAML>=6.0",  
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.0",
+  "ruff>=0.11.0",
+]
+
 [project.scripts]
 study-agent-mcp = "study_agent_mcp.server:main"
 study-agent-acp = "study_agent_acp.server:main"
