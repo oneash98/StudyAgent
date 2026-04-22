@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Any
 
+from study_agent_core.logging_utils import format_log_kv
+
 logger = logging.getLogger("study_agent.mcp")
 
 
@@ -21,6 +23,6 @@ def log_debug(message: str, **fields: Any) -> None:
     if not _level_enabled("DEBUG"):
         return
     if fields:
-        logger.debug("%s %s", message, " ".join([f"{k}={v}" for k, v in fields.items()]))
+        logger.debug("%s %s", message, format_log_kv(fields))
     else:
         logger.debug("%s", message)

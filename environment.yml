@@ -13,4 +13,5 @@ dependencies:
       - pydantic
       - pyyaml      
       - pytest
+      - ruff
       - requests

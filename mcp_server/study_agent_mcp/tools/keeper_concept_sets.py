@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -20,6 +21,10 @@ from study_agent_core.net import rewrite_container_host_url
 _CACHE: Dict[str, Any] = {}
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 logger = logging.getLogger("study_agent.mcp.keeper_concept_sets")
+
+
+def _text_fingerprint(value: str) -> str:
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()[:12]
 
 
 def _prompt_dir() -> str:
@@ -262,8 +267,9 @@ def _search_standard_via_hecate(
     endpoint = rewrite_container_host_url(endpoint)
     timeout = int(os.getenv("VOCAB_SEARCH_TIMEOUT", "30"))
     logger.debug(
-        "vocab_search provider=hecate_api query=%s domains=%s concept_classes=%s limit=%s timeout=%s",
-        query,
+        "vocab_search provider=hecate_api query_len=%s query_sha=%s domains=%s concept_classes=%s limit=%s timeout=%s",
+        len(query or ""),
+        _text_fingerprint(query),
         domains,
         concept_classes,
         limit,
@@ -297,7 +303,11 @@ def _search_standard_via_hecate(
             elif isinstance(item, dict):
                 concept_rows.append(item)
     normalized = _dedupe_concepts(concept_rows)
-    logger.debug("vocab_search provider=hecate_api query=%s results=%s", query, len(normalized))
+    logger.debug(
+        "vocab_search provider=hecate_api query_sha=%s results=%s",
+        _text_fingerprint(query),
+        len(normalized),
+    )
     return {"concepts": normalized, "count": len(normalized), "provider": "hecate_api", "url": endpoint}
 
 
@@ -323,8 +333,9 @@ def _search_standard_via_generic_api(
     endpoint = rewrite_container_host_url(endpoint)
     timeout = int(os.getenv("VOCAB_SEARCH_TIMEOUT", "30"))
     logger.debug(
-        "vocab_search provider=generic_search_api query=%s domains=%s concept_classes=%s limit=%s timeout=%s",
-        query,
+        "vocab_search provider=generic_search_api query_len=%s query_sha=%s domains=%s concept_classes=%s limit=%s timeout=%s",
+        len(query or ""),
+        _text_fingerprint(query),
         domains,
         concept_classes,
         limit,
@@ -417,7 +428,6 @@ def _phoebe_via_db(concept_ids: List[int], relationship_ids: List[str] | None) -
     engine = create_engine_with_dependencies(engine_name, future=True)
     logger.debug(
         "phoebe provider=db engine=<not shown - check config> concept_ids=%s relationship_ids=%s",
-        engine_name,
         len(concept_ids),
         relationship_ids,
     )
@@ -472,7 +482,6 @@ def _phoebe_via_db(concept_ids: List[int], relationship_ids: List[str] | None) -
     filtered, controls = _apply_phoebe_expansion_controls(raw_deduped, relationship_ids)
     logger.debug(
         "phoebe provider=db engine=<not shown - check config> query_seconds=%.2f total_seconds=%.2f rows=%s raw_results=%s final_results=%s relationships=%s applied_relationship_ids=%s max_per_relationship=%s max_total=%s",
-        engine_name,
         query_seconds,
         time.perf_counter() - started,
         len(rows),
@@ -507,7 +516,6 @@ def _fetch_concepts_via_db(
     engine = create_engine_with_dependencies(engine_name, future=True)
     logger.debug(
         "vocab_fetch provider=db engine=<not shown - check config> concept_ids=%s domains=%s concept_classes=%s require_standard=%s",
-        engine_name,
         len(concept_ids),
         domains,
         concept_classes,
@@ -564,7 +572,6 @@ def _fetch_concepts_via_db(
     deduped = _dedupe_concepts(concepts)
     logger.debug(
         "vocab_fetch provider=db engine=<not shown - check config> query_seconds=%.2f total_seconds=%.2f rows=%s results=%s missing=%s",
-        engine_name,
         query_seconds,
         time.perf_counter() - started,
         len(rows),

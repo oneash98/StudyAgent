@@ -115,8 +115,33 @@ Use this when you need a practical validation loop around a phenotype.
 ### Install
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 ```
+
+## Dependency Management
+
+The project currently uses a simple split:
+
+- `pyproject.toml` defines the Python package, runtime dependencies, console scripts, and optional dev tools.
+- `environment.yml` bootstraps a Conda or Micromamba environment with the Python tooling commonly used in this repo.
+- `uv.lock` is not tracked as a repo source of truth. If you use `uv` locally, generate your own lockfile after cloning.
+
+Official local workflow:
+
+```bash
+conda env create -f environment.yml
+conda activate study-agent
+pip install -e ".[dev]"
+```
+
+Optional `uv` workflow for users who prefer it:
+
+```bash
+uv lock
+uv run pytest
+```
+
+The repo does not currently require `uv`, and Docker still builds from `environment.yml` plus an editable install.
 
 ### Start MCP over HTTP
 
@@ -230,4 +255,3 @@ The repository still contains broader plans that are not the main implemented st
 - expansion toward a larger study-agent service catalog
 
 The planned-service inventory in older docs should not be read as "fully available now".
-
