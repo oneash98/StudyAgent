@@ -138,7 +138,16 @@ def task_test_all():
 def task_run_all():
     return {
         "actions": None,
-        "task_dep": ["test_all","smoke_phenotype_recommend_flow", "smoke_phenotype_intent_split_flow", "smoke_phenotype_recommendation_advice_flow", "smoke_phenotype_improvements_flow", "smoke_concept_sets_review_flow", "smoke_cohort_critique_flow"],
+        "task_dep": [
+            "test_all",
+            "smoke_phenotype_recommend_flow",
+            "smoke_phenotype_intent_split_flow",
+            "smoke_phenotype_recommendation_advice_flow",
+            "smoke_phenotype_improvements_flow",
+            "smoke_concept_sets_review_flow",
+            "smoke_cohort_critique_flow",
+            "smoke_case_causal_review_flow",
+        ],
     }
 
 
@@ -774,6 +783,17 @@ def task_smoke_keeper_concept_sets_generate_flow():
                     mcp_proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     mcp_proc.kill()
+
+    return {
+        "actions": [_run_smoke],
+        "verbosity": 2,
+    }
+
+
+def task_smoke_case_causal_review_flow():
+    def _run_smoke() -> None:
+        print("Running case causal review flow smoke test...")
+        subprocess.run(["python", "tests/case_causal_review_flow_smoke_test.py"], check=True)
 
     return {
         "actions": [_run_smoke],
