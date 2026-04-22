@@ -23,6 +23,7 @@ TOOL_MODULES: list[str] = [
     "study_agent_mcp.tools.keeper_validation",
     "study_agent_mcp.tools.keeper_concept_sets",
     "study_agent_mcp.tools.keeper_profiles",
+    "study_agent_mcp.tools.cohort_methods_prompt_bundle",
 ]
 
 
