@@ -62,6 +62,41 @@ Response model: `PhenotypeValidationReviewOutput`
 
 `keeper_row` must be sanitized before any LLM call.
 
+
+### `/flows/case_causal_review`
+
+Request model: `CaseCausalReviewInput`
+
+- `adverse_event_name`
+- `source_type`
+- `case_row`
+- `allowed_domains`
+
+`case_row` is a compact canonical representation shaped upstream by pv-copilot and should contain:
+
+- `case_id`
+- `case_summary`
+- `index_event`
+- `candidate_items`
+- `context_items`
+- `case_metadata`
+- `annotations`
+- `tool_hints`
+
+Structured ranking is limited to `candidate_items` only.
+`context_items` and `case_metadata` may influence reasoning but are not automatically ranked.
+`index_event` is assumed to have occurred and must never be ranked as a cause.
+
+Response model: `CaseCausalReviewOutput`
+
+- `flow_name`
+- `mode`
+- `candidates_by_domain`
+- `narrative`
+- `diagnostics`
+
+Optional MCP enrichment tools may be used, but successful execution must not depend on them.
+
 ## Shared Row And Concept Models
 
 ### `KeeperConceptSetItem`

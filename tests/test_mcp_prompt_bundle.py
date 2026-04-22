@@ -114,3 +114,56 @@ def test_keeper_build_prompt_uses_template() -> None:
     assert "Male, 40-44 yo; Visit: Inpatient Visit" in payload["prompt"]
     assert "Diagnoses recorded on the day of the visit: Gastrointestinal hemorrhage" in payload["prompt"]
     assert "Treatments recorded during or after the visit: Naproxen; None" in payload["prompt"]
+
+
+@pytest.mark.mcp
+def test_case_causal_review_prompt_bundle_schema() -> None:
+    from study_agent_mcp.tools import case_causal_review
+
+    mcp = DummyMCP()
+    case_causal_review.register(mcp)
+    fn = mcp.tools["case_causal_review_prompt_bundle"]
+    payload = fn("Hepatic failure", "signal_validation")
+    assert payload["output_schema"]["title"] == "case_causal_review_output"
+    assert "Hepatic failure" in payload["system_prompt"]
+
+
+@pytest.mark.mcp
+def test_case_causal_review_build_prompt_contains_allowed_domains() -> None:
+    from study_agent_mcp.tools import case_causal_review
+
+    mcp = DummyMCP()
+    case_causal_review.register(mcp)
+    fn = mcp.tools["case_causal_review_build_prompt"]
+    payload = fn(
+        "Hepatic failure",
+        {
+            "case_id": "case-1",
+            "case_summary": "Observed jaundice after exposure.",
+            "index_event": {
+                "domain": "index_event",
+                "label": "Hepatic failure",
+                "source_record_id": "reaction-1",
+                "subrole": "index_event",
+            },
+            "candidate_items": [
+                {
+                    "domain": "drug_exposures",
+                    "label": "Valproate",
+                    "source_record_id": "drug-1",
+                    "subrole": "primary_suspect",
+                    "annotations": {"label_mentions_event": True},
+                }
+            ],
+            "context_items": [],
+            "case_metadata": {},
+            "annotations": {"concept_set_id": "cs-1", "concept_set_version": 2, "concept_set_available_domains": ["drugs"]},
+            "tool_hints": {"available_expansions": ["get_case_review_drug_label_details"], "prefetch_expansions": []},
+        },
+        "signal_validation",
+        ["drug_exposures"],
+        {},
+    )
+    assert '"adverse_event_name": "Hepatic failure"' in payload["prompt"]
+    assert '"allowed_domains": [' in payload["prompt"]
+    assert '"candidate_items": [' in payload["prompt"]

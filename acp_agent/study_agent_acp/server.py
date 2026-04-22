@@ -18,6 +18,7 @@ SERVICES = [
     {"name": "concept_sets_review", "endpoint": "/flows/concept_sets_review"},
     {"name": "cohort_critique_general_design", "endpoint": "/flows/cohort_critique_general_design"},
     {"name": "phenotype_validation_review", "endpoint": "/flows/phenotype_validation_review"},
+    {"name": "case_causal_review", "endpoint": "/flows/case_causal_review"},
     {"name": "keeper_concept_sets_generate", "endpoint": "/flows/keeper_concept_sets_generate"},
     {"name": "keeper_profiles_generate", "endpoint": "/flows/keeper_profiles_generate"},
     {"name": "phenotype_recommendation_advice", "endpoint": "/flows/phenotype_recommendation_advice"},
@@ -415,6 +416,42 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 if self.debug:
                     logger.exception("flow_failed name=phenotype_validation_review")
+                _write_json(self, 500, {"error": "flow_failed", "detail": str(exc) if self.debug else None})
+                return
+            status = 200 if result.get("status") != "error" else 500
+            _write_json(self, status, result)
+            return
+
+
+        if self.path == "/flows/case_causal_review":
+            try:
+                body = _read_json(self)
+            except Exception as exc:
+                _write_json(self, 400, {"error": f"invalid_json: {exc}"})
+                return
+            adverse_event_name = body.get("adverse_event_name") or ""
+            case_row = body.get("case_row")
+            source_type = body.get("source_type") or ""
+            allowed_domains = body.get("allowed_domains") or []
+            if not isinstance(case_row, dict):
+                _write_json(self, 400, {"error": "case_row must be a JSON object"})
+                return
+            if source_type not in {"signal_validation", "patient_profile"}:
+                _write_json(self, 400, {"error": "source_type must be signal_validation or patient_profile"})
+                return
+            if not isinstance(allowed_domains, list):
+                _write_json(self, 400, {"error": "allowed_domains must be an array when provided"})
+                return
+            try:
+                result = self.agent.run_case_causal_review_flow(
+                    adverse_event_name=adverse_event_name,
+                    case_row=case_row,
+                    source_type=source_type,
+                    allowed_domains=allowed_domains,
+                )
+            except Exception as exc:
+                if self.debug:
+                    logger.exception("flow_failed name=case_causal_review")
                 _write_json(self, 500, {"error": "flow_failed", "detail": str(exc) if self.debug else None})
                 return
             status = 200 if result.get("status") != "error" else 500

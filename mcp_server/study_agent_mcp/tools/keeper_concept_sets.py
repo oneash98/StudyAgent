@@ -416,7 +416,7 @@ def _phoebe_via_db(concept_ids: List[int], relationship_ids: List[str] | None) -
     concept_table = _safe_identifier(os.getenv("VOCAB_CONCEPT_TABLE", "concept"), "vocab_concept_table")
     engine = create_engine_with_dependencies(engine_name, future=True)
     logger.debug(
-        "phoebe provider=db engine=%s concept_ids=%s relationship_ids=%s",
+        "phoebe provider=db engine=<not shown - check config> concept_ids=%s relationship_ids=%s",
         engine_name,
         len(concept_ids),
         relationship_ids,
@@ -471,7 +471,7 @@ def _phoebe_via_db(concept_ids: List[int], relationship_ids: List[str] | None) -
     raw_deduped = _dedupe_concepts(concepts)
     filtered, controls = _apply_phoebe_expansion_controls(raw_deduped, relationship_ids)
     logger.debug(
-        "phoebe provider=db engine=%s query_seconds=%.2f total_seconds=%.2f rows=%s raw_results=%s final_results=%s relationships=%s applied_relationship_ids=%s max_per_relationship=%s max_total=%s",
+        "phoebe provider=db engine=<not shown - check config> query_seconds=%.2f total_seconds=%.2f rows=%s raw_results=%s final_results=%s relationships=%s applied_relationship_ids=%s max_per_relationship=%s max_total=%s",
         engine_name,
         query_seconds,
         time.perf_counter() - started,
@@ -506,7 +506,7 @@ def _fetch_concepts_via_db(
     concept_table = _safe_identifier(os.getenv("VOCAB_CONCEPT_TABLE", "concept"), "vocab_concept_table")
     engine = create_engine_with_dependencies(engine_name, future=True)
     logger.debug(
-        "vocab_fetch provider=db engine=%s concept_ids=%s domains=%s concept_classes=%s require_standard=%s",
+        "vocab_fetch provider=db engine=<not shown - check config> concept_ids=%s domains=%s concept_classes=%s require_standard=%s",
         engine_name,
         len(concept_ids),
         domains,
@@ -563,7 +563,7 @@ def _fetch_concepts_via_db(
         )
     deduped = _dedupe_concepts(concepts)
     logger.debug(
-        "vocab_fetch provider=db engine=%s query_seconds=%.2f total_seconds=%.2f rows=%s results=%s missing=%s",
+        "vocab_fetch provider=db engine=<not shown - check config> query_seconds=%.2f total_seconds=%.2f rows=%s results=%s missing=%s",
         engine_name,
         query_seconds,
         time.perf_counter() - started,
