@@ -22,6 +22,7 @@ SERVICES = [
     {"name": "keeper_profiles_generate", "endpoint": "/flows/keeper_profiles_generate"},
     {"name": "phenotype_recommendation_advice", "endpoint": "/flows/phenotype_recommendation_advice"},
     {"name": "phenotype_intent_split", "endpoint": "/flows/phenotype_intent_split"},
+    {"name": "cohort_methods_specifications_recommendation", "endpoint": "/flows/cohort_methods_specifications_recommendation"},
 ]
 SERVICE_REGISTRY_PATH = os.getenv("STUDY_AGENT_SERVICE_REGISTRY", "docs/SERVICE_REGISTRY.yaml")
 logger = logging.getLogger("study_agent.acp")
@@ -277,6 +278,35 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
                 return
             status = 200 if result.get("status") != "error" else 500
             _write_json(self, status, result)
+            return
+
+        if self.path == "/flows/cohort_methods_specifications_recommendation":
+            try:
+                body = _read_json(self)
+            except Exception as exc:
+                _write_json(self, 400, {"error": f"invalid_json: {exc}"})
+                return
+            try:
+                from study_agent_core.models import CohortMethodSpecsRecommendationInput
+                payload = CohortMethodSpecsRecommendationInput(**body)
+            except Exception as exc:
+                _write_json(self, 422, {"error": f"invalid_payload: {exc}"})
+                return
+            try:
+                result = self.agent.run_cohort_methods_specs_recommendation_flow(
+                    analytic_settings_description=payload.analytic_settings_description,
+                    study_intent=payload.study_intent,
+                    current_specifications=payload.current_specifications,
+                    cohort_definitions=payload.cohort_definitions,
+                    negative_control_concept_set=payload.negative_control_concept_set,
+                    covariate_selection=payload.covariate_selection,
+                )
+            except Exception as exc:
+                if self.debug:
+                    logger.exception("flow_failed name=cohort_methods_specifications_recommendation")
+                _write_json(self, 500, {"error": "flow_failed", "detail": str(exc) if self.debug else None})
+                return
+            _write_json(self, 200, result)
             return
 
         if self.path == "/flows/phenotype_improvements":
