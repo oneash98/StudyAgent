@@ -167,3 +167,40 @@ _SECTION_CHECKERS = {
     "propensityScoreAdjustment": _check_ps_adjustment,
     "fitOutcomeModelArgs": _check_outcome_model,
 }
+
+
+def merge_client_metadata(
+    spec: Dict[str, Any],
+    cohort_definitions: Dict[str, Any],
+    negative_control: Dict[str, Any],
+    covariate_selection: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return a deep copy of `spec` with client-carried metadata fields overwritten.
+
+    Overwrites `cohortDefinitions`, `negativeControlConceptSet`, `covariateSelection`.
+    Leaves `name` alone (LLM-supplied).
+    """
+    merged = deepcopy(spec) if isinstance(spec, dict) else {}
+    if cohort_definitions:
+        merged["cohortDefinitions"] = deepcopy(cohort_definitions)
+    if negative_control:
+        merged["negativeControlConceptSet"] = deepcopy(negative_control)
+    if covariate_selection:
+        merged["covariateSelection"] = deepcopy(covariate_selection)
+    return merged
+
+
+def backfill_section_from_defaults(
+    spec: Dict[str, Any],
+    defaults: Dict[str, Any],
+    section_name: str,
+) -> Dict[str, Any]:
+    """Return a deep copy of `spec` with `section_name` replaced by the defaults value.
+
+    Raises ValueError for sections outside LLM_FILLED_SECTIONS.
+    """
+    if section_name not in LLM_FILLED_SECTIONS:
+        raise ValueError(f"cannot backfill unknown section: {section_name}")
+    out = deepcopy(spec) if isinstance(spec, dict) else {}
+    out[section_name] = deepcopy(defaults.get(section_name, {}))
+    return out
