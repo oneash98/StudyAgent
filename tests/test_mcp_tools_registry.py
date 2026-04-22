@@ -56,4 +56,5 @@ def test_register_all_tools() -> None:
         "vocab_remove_descendants",
         "vocab_add_nonchildren",
         "vocab_fetch_concepts",
+        "cohort_methods_prompt_bundle",
     }
