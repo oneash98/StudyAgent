@@ -11,7 +11,10 @@ demo/417_Acute_gastrointestinal_bleeding_events.json
 demo/299_Acute_gastrointestinal_bleeding_or_perforation_events.json
 demo/1197_Acute_gastrointestinal_bleeding.json
 test*.R
+!R/OHDSIAssistant/tests/testthat.R
+!R/OHDSIAssistant/tests/testthat/test-step-by-step-analytic-settings.R
 .obsidian/
+.DS_Store
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

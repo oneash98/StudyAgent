@@ -21,6 +21,17 @@ OHDSIAssistant::runStrategusCohortMethodsShell(
 )
 ```
 
+If you only want to exercise the analytic-settings flow with stable demo inputs, use:
+
+```r
+OHDSIAssistant::runStrategusCohortMethodAnalyticSettingsTest(
+  outputDir = "demo-strategus-cohort-methods-analytic-settings"
+)
+```
+
+This helper skips the target/comparator/outcome selection prompts and writes only
+analytic-settings-focused artifacts under `outputDir/outputs/`.
+
 ## Current Stage Flow
 
 1. Manual collection of required identifiers:
@@ -41,7 +52,12 @@ OHDSIAssistant::runStrategusCohortMethodsShell(
      - Time-at-risk settings
      - Propensity score adjustment settings
      - Outcome model settings
-   - Detailed prompts inside those sections are still TODO in the current stage, so defaults are kept for now.
+   - In `step_by_step`, the shell asks each category in order, asks for the core setting(s)
+     first, then shows a `keep the defaults or choose each option yourself` prompt followed by the current
+     default values for the remaining supported sub-settings.
+   - After the profile name is entered, the shell prints the final resolved analytic settings once
+     more for review.
+   - The analytic-settings profile name is prompted after all four sections are complete.
    - `free_text` first uses `analyticSettingsDescription` when provided.
    - If that is absent, it next uses `analyticSettingsDescriptionPath` when provided.
    - If neither is provided, the shell asks the user to type the description interactively.
@@ -67,36 +83,109 @@ Current `step_by_step` section flow:
 - `propensity_score_adjustment`
 - `outcome_model`
 
-Current execution defaults still use the same effective analytic-settings fields:
+User-facing `step_by_step` prompts now follow the ATLAS section grouping, but keep the previously
+agreed shell interaction pattern:
+
+- ask only the section's core settings directly
+- then offer a keep-defaults step for the remaining hidden/default settings
+- if the user declines defaults, ask each remaining exposed setting one by one
+- show short setting names only in default summaries and final summaries
+- show detailed per-setting descriptions only in the one-by-one customization path
+
+Exception for propensity score adjustment:
+
+- first ask the strategy: `match_on_ps`, `stratify_by_ps`, or `none`
+- if `match_on_ps`, ask only `maxRatio`
+- if `stratify_by_ps`, ask only `numberOfStrata`
+- after that, show the remaining PS defaults and ask whether to keep them
+- if the user declines defaults, ask the exposed remaining PS settings one by one
+- exposed PS trimming settings in that remaining-defaults path:
+  `trimmingStrategy` with `none`, `by_percent`, or `by_equipoise`
+- if trimming is customized to `by_percent`, the shell asks for the trimming percent
+- if trimming is customized to `by_equipoise`, the shell asks for the lower and upper
+  equipoise bounds
+- match defaults currently exposed in that remaining-defaults path:
+  `maxCohortSizeForFitting`, `errorOnHighCorrelation`, `useRegularization`, `caliper`,
+  `caliperScale`
+- stratify defaults currently exposed in that remaining-defaults path:
+  `maxCohortSizeForFitting`, `errorOnHighCorrelation`, `useRegularization`, `baseSelection`
+- hidden internal defaults such as `create_ps.estimator` still remain persisted but are not
+  directly prompted
+
+Internally, the persisted JSON still uses the existing `CohortMethod`-aligned field names.
+
+Current execution defaults and persisted artifacts use the following effective analytic-settings fields:
 
 - `profile_name`
 - Study population
+  - `studyStartDate`
+  - `studyEndDate`
+  - `maxCohortSize`
   - `firstExposureOnly`
   - `washoutPeriod`
   - `restrictToCommonPeriod`
   - `removeDuplicateSubjects`
+  - `censorAtNewRiskWindow`
   - `removeSubjectsWithPriorOutcome`
   - `priorOutcomeLookback`
-  - `censorAtNewRiskWindow`
 - Covariate settings
   - current default covariate behavior
   - include-all state
   - include concept-set selection
   - exclude concept-set selection
 - Time-at-risk
+  - `minDaysAtRisk`
   - `riskWindowStart`
   - `startAnchor`
   - `riskWindowEnd`
   - `endAnchor`
 - Propensity score adjustment
+  - `strategy`
+  - `trimmingStrategy`
+  - `trimmingPercent`
+  - `equipoiseLowerBound`
+  - `equipoiseUpperBound`
   - `estimator`
   - `maxCohortSizeForFitting`
-  - `caliper`
-- `caliperScale`
-- `maxRatio`
+  - `errorOnHighCorrelation`
+  - `useRegularization`
+  - matching: `caliper`, `caliperScale`, `maxRatio`
+  - stratification: `numberOfStrata`, `baseSelection`
 - Outcome model
   - `modelType`
   - `stratified`
+  - `useCovariates`
+  - `inversePtWeighting`
+  - `useRegularization`
+
+For the currently supported hidden sub-settings, the shell displays the actual OHDSI /
+CohortMethod defaults as values only when offering to keep defaults, using short setting names
+instead of prompt-length explanatory text. If the user chooses to customize the remaining settings,
+the shell now asks each exposed remaining setting individually and shows its detailed description at
+that point. Hidden internal fields such as `create_ps.estimator` and extraction-level duplicate
+handling remain persisted but are still not asked directly in the current prompt flow.
+
+Important current default behavior:
+
+- Matching defaults now follow CohortMethod defaults, including `maxRatio = 1`,
+  `caliper = 0.2`, and `caliperScale = "standardized logit"`.
+- PS fitting defaults currently exposed in the shell include:
+  - `maxCohortSizeForFitting = 250000`
+  - `errorOnHighCorrelation = FALSE`
+  - `useRegularization = TRUE`
+- PS trimming defaults currently exposed in the shell include:
+  - `trimmingStrategy = none`
+  - `trimmingPercent = 5`
+  - `equipoise bounds = c(0.25, 0.75)`
+- Time-at-risk defaults now follow CohortMethod defaults, including `riskWindowStart = 0`
+  and `censorAtNewRiskWindow = FALSE`.
+- Outcome-model defaults are partially dynamic:
+  - `stratified = FALSE` for no PS adjustment
+  - `stratified = FALSE` for one-to-one matching (`maxRatio = 1`)
+  - `stratified = TRUE` for variable-ratio matching and PS stratification
+  - `useCovariates = FALSE`
+  - `inversePtWeighting = FALSE`
+  - `useRegularization = TRUE`
 
 The effective selected profile is written to `outputs/cm_analysis_defaults.json`, which retains
 profile metadata such as `profile_name`, `source`, and `customized_sections` and remains the
@@ -186,12 +275,9 @@ execution details.
   - negative control cohort-definition logic
   - positive control synthesis
   - empirical calibration configuration
-  - study start/end date restrictions
   - minimum days at risk
   - PS trimming
-  - stratification and IPTW execution branches
-  - covariate correlation checks
-  - regularization toggles
+  - IPTW execution branches
   - detailed covariate feature-group selection beyond the current default-plus-include/exclude model
 - Evaluation settings from section 12.7.3 remain deferred as well.
 - Multiple analytic-settings profiles, multi-comparison support, and broader CohortMethod branching

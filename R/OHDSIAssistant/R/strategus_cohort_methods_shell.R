@@ -30,6 +30,1278 @@
 #' @param cohortIdBase optional starting cohort ID when remapping
 #' @return invisible list with output paths
 #' @export
+.studyAgentAnalyticSettingsSectionPaths <- function() {
+  list(
+    study_population = c(
+      "get_db_cohort_method_data.studyStartDate",
+      "get_db_cohort_method_data.studyEndDate",
+      "get_db_cohort_method_data.restrictToCommonPeriod",
+      "get_db_cohort_method_data.firstExposureOnly",
+      "get_db_cohort_method_data.washoutPeriod",
+      "create_study_population.removeDuplicateSubjects",
+      "create_study_population.censorAtNewRiskWindow",
+      "create_study_population.removeSubjectsWithPriorOutcome",
+      "create_study_population.priorOutcomeLookback"
+      ,
+      "create_study_population.maxCohortSize"
+    ),
+    time_at_risk = c(
+      "create_study_population.minDaysAtRisk",
+      "create_study_population.riskWindowStart",
+      "create_study_population.startAnchor",
+      "create_study_population.riskWindowEnd",
+      "create_study_population.endAnchor"
+    ),
+    propensity_score_adjustment = c(
+      "ps_adjustment.strategy",
+      "ps_adjustment.trimmingStrategy",
+      "ps_adjustment.trimmingPercent",
+      "ps_adjustment.equipoiseLowerBound",
+      "ps_adjustment.equipoiseUpperBound",
+      "create_ps.maxCohortSizeForFitting",
+      "create_ps.errorOnHighCorrelation",
+      "create_ps.useRegularization",
+      "match_on_ps.caliper",
+      "match_on_ps.caliperScale",
+      "match_on_ps.maxRatio",
+      "stratify_by_ps.numberOfStrata",
+      "stratify_by_ps.baseSelection"
+    ),
+    outcome_model = c(
+      "fit_outcome_model.modelType",
+      "fit_outcome_model.stratified",
+      "fit_outcome_model.useCovariates",
+      "fit_outcome_model.inversePtWeighting",
+      "fit_outcome_model.useRegularization"
+    )
+  )
+}
+
+.studyAgentAnalyticSettingsSectionTitles <- function() {
+  c(
+    study_population = "Study Population",
+    time_at_risk = "Time At Risk",
+    propensity_score_adjustment = "Propensity Score Adjustment",
+    outcome_model = "Outcome Model"
+  )
+}
+
+.studyAgentAnalyticSettingDocs <- function() {
+  list(
+    "get_db_cohort_method_data.studyStartDate" = list(
+      label = "Study start date",
+      summary_label = "Study start date"
+    ),
+    "get_db_cohort_method_data.studyEndDate" = list(
+      label = "Study end date",
+      summary_label = "Study end date"
+    ),
+    "get_db_cohort_method_data.firstExposureOnly" = list(
+      label = "First exposure only",
+      summary_label = "First exposure only",
+      description = "Should only the first exposure per subject be included?"
+    ),
+    "get_db_cohort_method_data.washoutPeriod" = list(
+      label = "Washout period",
+      summary_label = "Washout period",
+      description = "The minimum required continuous observation time (in days) prior to index date for a person to be included in the cohort."
+    ),
+    "get_db_cohort_method_data.restrictToCommonPeriod" = list(
+      label = "Restrict to common period",
+      summary_label = "Restrict to common period",
+      description = "Restrict the study to the period when both exposures are present in the data? (E.g. when both drugs are on the market)"
+    ),
+    "get_db_cohort_method_data.removeDuplicateSubjects" = list(
+      label = "Duplicate subjects during extraction",
+      summary_label = "Duplicate subjects during extraction",
+      description = "Controls how people who appear in both target and comparator cohorts are handled while extracting data."
+    ),
+    "create_study_population.removeDuplicateSubjects" = list(
+      label = "Remove duplicate subjects",
+      summary_label = "Remove duplicate subjects",
+      description = "Remove subjects that are in both the target and comparator cohort?"
+    ),
+    "create_study_population.maxCohortSize" = list(
+      label = "Maximum cohort size",
+      summary_label = "Maximum cohort size",
+      description = "If either the target or the comparator cohort is larger than this number it will be sampled to this size. (0 for this value indicates no maximum size)"
+    ),
+    "create_study_population.removeSubjectsWithPriorOutcome" = list(
+      label = "Remove prior outcomes",
+      summary_label = "Remove prior outcomes",
+      description = "Remove subjects that have the outcome prior to the risk window start?"
+    ),
+    "create_study_population.priorOutcomeLookback" = list(
+      label = "Prior outcome lookback",
+      summary_label = "Prior outcome lookback",
+      description = "How many days should we look back when identifying prior outcomes?"
+    ),
+    "create_study_population.riskWindowStart" = list(
+      label = "Risk window start",
+      summary_label = "Risk window start"
+    ),
+    "create_study_population.minDaysAtRisk" = list(
+      label = "Minimum days at risk",
+      summary_label = "Minimum days at risk",
+      description = "The minimum number of days at risk?"
+    ),
+    "create_study_population.startAnchor" = list(
+      label = "Risk window start anchor",
+      summary_label = "Risk window start anchor"
+    ),
+    "create_study_population.riskWindowEnd" = list(
+      label = "Risk window end",
+      summary_label = "Risk window end"
+    ),
+    "create_study_population.endAnchor" = list(
+      label = "Risk window end anchor",
+      summary_label = "Risk window end anchor"
+    ),
+    "create_study_population.censorAtNewRiskWindow" = list(
+      label = "Censor at new risk window",
+      summary_label = "Censor at new risk window",
+      description = "If a subject is in multiple cohorts, should time-at-risk be censored when the new time-at-risk start to prevent overlap?"
+    ),
+    "ps_adjustment.strategy" = list(
+      label = "PS adjustment strategy",
+      summary_label = "PS adjustment strategy"
+    ),
+    "ps_adjustment.trimmingStrategy" = list(
+      label = "PS trimming",
+      summary_label = "PS trimming",
+      description = "How do you want to trim your cohorts based on the propensity score distribution?"
+    ),
+    "ps_adjustment.trimmingPercent" = list(
+      label = "Trimming percent",
+      summary_label = "Trimming percent",
+      description = "What percentage of each tail should be removed?"
+    ),
+    "ps_adjustment.equipoiseLowerBound" = list(
+      label = "Equipoise lower bound",
+      summary_label = "Equipoise lower bound",
+      description = "What is the lower preference score bound for trimming to equipoise?"
+    ),
+    "ps_adjustment.equipoiseUpperBound" = list(
+      label = "Equipoise upper bound",
+      summary_label = "Equipoise upper bound",
+      description = "What is the upper preference score bound for trimming to equipoise?"
+    ),
+    "create_ps.estimator" = list(
+      label = "PS estimator",
+      summary_label = "PS estimator",
+      description = "Defines the treatment effect target used when propensity scores are converted into adjustment weights or summaries."
+    ),
+    "create_ps.maxCohortSizeForFitting" = list(
+      label = "Max cohort size for PS fitting",
+      summary_label = "Max cohort size for PS fitting",
+      description = "What is the maximum number of people to include in the propensity score model when fitting? Setting this number to 0 means no down-sampling will be applied:"
+    ),
+    "create_ps.errorOnHighCorrelation" = list(
+      label = "Test covariate correlation",
+      summary_label = "Test covariate correlation",
+      description = "Test each covariate for correlation with the target assignment? If any covariate has an unusually high correlation (either positive or negative), this will throw an error."
+    ),
+    "create_ps.useRegularization" = list(
+      label = "Use regularization",
+      summary_label = "Use regularization",
+      description = "Use regularization when fitting the propensity model?"
+    ),
+    "match_on_ps.caliper" = list(
+      label = "Matching caliper",
+      summary_label = "Matching caliper",
+      description = "What is the caliper for matching:"
+    ),
+    "match_on_ps.caliperScale" = list(
+      label = "Caliper scale",
+      summary_label = "Caliper scale",
+      description = "What is the caliper scale:"
+    ),
+    "match_on_ps.maxRatio" = list(
+      label = "Maximum match ratio",
+      summary_label = "Maximum match ratio",
+      description = "What is the maximum number of persons in the comparator arm to be matched to each person in the target arm within the defined caliper? (0 = means no maximum - all comparators will be assigned to a target person):"
+    ),
+    "stratify_by_ps.numberOfStrata" = list(
+      label = "Number of strata",
+      summary_label = "Number of strata",
+      description = "Into how many strata should the propensity score be divided? The boundaries of the strata are automatically defined to contain equal numbers of target persons:"
+    ),
+    "stratify_by_ps.baseSelection" = list(
+      label = "Base selection for strata bounds",
+      summary_label = "Base selection for strata bounds",
+      description = "What is the base selection of subjects where the strata bounds are to be determined? Strata are defined as equally-sized strata inside this selection."
+    ),
+    "fit_outcome_model.modelType" = list(
+      label = "Outcome model",
+      summary_label = "Outcome model"
+    ),
+    "fit_outcome_model.stratified" = list(
+      label = "Condition on strata",
+      summary_label = "Condition on strata",
+      description = "Should the regression be conditioned on the strata defined in the population object (e.g. by matching or stratifying on propensity scores)?"
+    ),
+    "fit_outcome_model.useCovariates" = list(
+      label = "Use covariates in outcome model",
+      summary_label = "Use covariates in outcome model",
+      description = "Should the covariates also be included in the outcome model?"
+    ),
+    "fit_outcome_model.inversePtWeighting" = list(
+      label = "Use IPTW",
+      summary_label = "Use IPTW",
+      description = "Use inverse probability of treatment weighting?"
+    ),
+    "fit_outcome_model.useRegularization" = list(
+      label = "Use regularization",
+      summary_label = "Use regularization",
+      description = "Use regularization when fitting the outcome model?"
+    )
+  )
+}
+
+.studyAgentSummaryLabel <- function(path) {
+  docs <- .studyAgentAnalyticSettingDocs()
+  doc <- docs[[path]]
+  if (is.null(doc)) return(path)
+  if (!is.null(doc$summary_label)) return(as.character(doc$summary_label))
+  if (!is.null(doc$label)) return(as.character(doc$label))
+  path
+}
+
+.studyAgentFormatDateForPrompt <- function(value) {
+  if (is.null(value) || length(value) == 0 || is.na(value)) return("")
+  value <- trimws(as.character(value[[1]]))
+  if (!nzchar(value)) return("")
+  if (grepl("^[0-9]{8}$", value)) {
+    return(sprintf("%s-%s-%s", substr(value, 1L, 4L), substr(value, 5L, 6L), substr(value, 7L, 8L)))
+  }
+  value
+}
+
+.studyAgentFormatAnalyticSettingValue <- function(value, path = NULL) {
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+  if (is.null(value) || length(value) == 0 || is.na(value)) return("<not set>")
+  if (is.character(value) && length(value) == 1 && !nzchar(trimws(value))) return("<blank>")
+  if (!is.null(path) && path %in% c("get_db_cohort_method_data.studyStartDate", "get_db_cohort_method_data.studyEndDate")) {
+    return(.studyAgentFormatDateForPrompt(value))
+  }
+  if (is.logical(value) && length(value) == 1) return(if (isTRUE(value)) "Yes" else "No")
+  if (is.character(value) && length(value) == 1) {
+    mapped <- switch(
+      path %||% "",
+      "create_study_population.startAnchor" = c("cohort start" = "cohort start date", "cohort end" = "cohort end date")[[value]],
+      "create_study_population.endAnchor" = c("cohort start" = "cohort start date", "cohort end" = "cohort end date")[[value]],
+      "ps_adjustment.strategy" = c("match_on_ps" = "Match on propensity score", "stratify_by_ps" = "Stratify on propensity score", "none" = "None")[[value]],
+      "ps_adjustment.trimmingStrategy" = c("none" = "None", "by_percent" = "By percent", "by_equipoise" = "By equipoise")[[value]],
+      "match_on_ps.caliperScale" = c("propensity score" = "Propensity score", "standardized" = "Standardized", "standardized logit" = "Standardized logit")[[value]],
+      "fit_outcome_model.modelType" = c("cox" = "Cox proportional hazards", "poisson" = "Poisson regression", "logistic" = "Logistic regression")[[value]],
+      "create_study_population.removeDuplicateSubjects" = c("keep all" = "Keep All", "keep first" = "Keep First", "remove all" = "Remove All")[[value]],
+      "get_db_cohort_method_data.removeDuplicateSubjects" = c("keep all" = "Keep All", "keep first" = "Keep First", "remove all" = "Remove All", "keep first, truncate to second" = "Keep First, Truncate to Second")[[value]],
+      "stratify_by_ps.baseSelection" = c("all" = "Entire study population", "target" = "Target", "comparator" = "Comparator")[[value]],
+      NULL
+    )
+    if (!is.null(mapped) && length(mapped) == 1 && !is.na(mapped)) return(mapped)
+  }
+  if (!is.null(path) && identical(path, "ps_adjustment.trimmingPercent") && is.numeric(value) && length(value) == 1) {
+    formatted <- formatC(as.numeric(value), format = "fg", digits = 6)
+    return(sprintf("%s%%", formatted))
+  }
+  if (is.numeric(value) && length(value) == 1) return(as.character(value))
+  paste(as.character(value), collapse = ", ")
+}
+
+.studyAgentOutcomeModelDefaults <- function(ps_strategy = "match_on_ps",
+                                            match_max_ratio = 1L,
+                                            model_type = "cox") {
+  normalized_strategy <- as.character(if (is.null(ps_strategy)) "match_on_ps" else ps_strategy)
+  normalized_ratio <- suppressWarnings(as.integer(if (is.null(match_max_ratio)) 1L else match_max_ratio))
+  if (length(normalized_ratio) == 0 || is.na(normalized_ratio)) normalized_ratio <- 1L
+
+  stratified_default <- FALSE
+  if (identical(normalized_strategy, "stratify_by_ps")) {
+    stratified_default <- TRUE
+  } else if (identical(normalized_strategy, "match_on_ps") && normalized_ratio != 1L) {
+    stratified_default <- TRUE
+  }
+
+  list(
+    modelType = as.character(if (is.null(model_type)) "cox" else model_type),
+    stratified = isTRUE(stratified_default),
+    useCovariates = FALSE,
+    inversePtWeighting = FALSE,
+    useRegularization = TRUE
+  )
+}
+
+.studyAgentPrintDefaultSummary <- function(header, defaults, paths) {
+  docs <- .studyAgentAnalyticSettingDocs()
+  cat(sprintf("%s\n", header))
+  for (path in paths) {
+    doc <- docs[[path]]
+    if (is.null(doc)) doc <- list(label = path, description = "")
+    label <- .studyAgentSummaryLabel(path)
+    value <- .studyAgentFormatAnalyticSettingValue(.studyAgentGetNestedValue(defaults, path), path = path)
+    cat(sprintf("  - %s: %s\n", label, value))
+  }
+}
+
+.studyAgentPromptKeepDefaults <- function(question, defaults, paths, io_ask_yesno) {
+  cat(sprintf("%s\n", question))
+  .studyAgentPrintDefaultSummary(
+    "Default settings:",
+    defaults,
+    paths
+  )
+  io_ask_yesno("Keep these defaults? Choose No if you want to set the remaining options yourself.", default = TRUE)
+}
+
+.studyAgentPrintAnalyticSettingDescription <- function(path) {
+  docs <- .studyAgentAnalyticSettingDocs()
+  doc <- docs[[path]]
+  if (is.null(doc) || is.null(doc$description)) return(invisible(NULL))
+  description <- trimws(as.character(doc$description))
+  if (!nzchar(description)) return(invisible(NULL))
+  cat(sprintf("%s\n", description))
+  invisible(NULL)
+}
+
+.studyAgentPromptAnalyticSetting <- function(working,
+                                             path,
+                                             ask_yesno,
+                                             ask_choice,
+                                             ask_integer,
+                                             ask_numeric) {
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+
+  .studyAgentPrintAnalyticSettingDescription(path)
+
+  updated <- switch(
+    path,
+    "get_db_cohort_method_data.restrictToCommonPeriod" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    "get_db_cohort_method_data.firstExposureOnly" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    "get_db_cohort_method_data.washoutPeriod" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_integer(
+        "",
+        default = as.integer(.studyAgentGetNestedValue(working, path)),
+        min_value = 0L,
+        allow_negative = FALSE
+      )
+    ),
+    "create_study_population.removeDuplicateSubjects" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_choice(
+        "",
+        choices = c("keep all", "keep first", "remove all"),
+        labels = c("Keep All", "Keep First", "Remove All"),
+        default = .studyAgentGetNestedValue(working, path) %||% "keep all"
+      )
+    ),
+    "create_study_population.censorAtNewRiskWindow" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    "create_study_population.removeSubjectsWithPriorOutcome" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    "create_study_population.priorOutcomeLookback" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_integer(
+        "",
+        default = as.integer(.studyAgentGetNestedValue(working, path)),
+        min_value = 0L,
+        allow_negative = FALSE
+      )
+    ),
+    "create_study_population.maxCohortSize" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_integer(
+        "",
+        default = as.integer(.studyAgentGetNestedValue(working, path)),
+        min_value = 0L,
+        allow_negative = FALSE
+      )
+    ),
+    "create_study_population.minDaysAtRisk" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_integer(
+        "",
+        default = as.integer(.studyAgentGetNestedValue(working, path)),
+        min_value = 0L,
+        allow_negative = FALSE
+      )
+    ),
+    "ps_adjustment.trimmingStrategy" = {
+      updated_working <- .studyAgentSetNestedValue(
+        working,
+        path,
+        ask_choice(
+          "",
+          choices = c("none", "by_percent", "by_equipoise"),
+          labels = c("None", "By percent", "By equipoise"),
+          default = .studyAgentGetNestedValue(working, path) %||% "none"
+        )
+      )
+      selected_strategy <- .studyAgentGetNestedValue(updated_working, path) %||% "none"
+      if (identical(selected_strategy, "by_percent")) {
+        updated_working <- .studyAgentSetNestedValue(
+          updated_working,
+          "ps_adjustment.trimmingPercent",
+          ask_numeric(
+            "",
+            default = as.numeric(.studyAgentGetNestedValue(updated_working, "ps_adjustment.trimmingPercent") %||% 5),
+            min_value = 0
+          )
+        )
+        updated_working <- .studyAgentSetNestedValue(updated_working, "ps_adjustment.equipoiseLowerBound", 0.25)
+        updated_working <- .studyAgentSetNestedValue(updated_working, "ps_adjustment.equipoiseUpperBound", 0.75)
+      } else if (identical(selected_strategy, "by_equipoise")) {
+        updated_working <- .studyAgentSetNestedValue(
+          updated_working,
+          "ps_adjustment.equipoiseLowerBound",
+          ask_numeric(
+            "",
+            default = as.numeric(.studyAgentGetNestedValue(updated_working, "ps_adjustment.equipoiseLowerBound") %||% 0.25),
+            min_value = 0
+          )
+        )
+        updated_working <- .studyAgentSetNestedValue(
+          updated_working,
+          "ps_adjustment.equipoiseUpperBound",
+          ask_numeric(
+            "",
+            default = as.numeric(.studyAgentGetNestedValue(updated_working, "ps_adjustment.equipoiseUpperBound") %||% 0.75),
+            min_value = 0
+          )
+        )
+        updated_working <- .studyAgentSetNestedValue(updated_working, "ps_adjustment.trimmingPercent", 5)
+      } else {
+        updated_working <- .studyAgentSetNestedValue(updated_working, "ps_adjustment.trimmingPercent", 5)
+        updated_working <- .studyAgentSetNestedValue(updated_working, "ps_adjustment.equipoiseLowerBound", 0.25)
+        updated_working <- .studyAgentSetNestedValue(updated_working, "ps_adjustment.equipoiseUpperBound", 0.75)
+      }
+      updated_working
+    },
+    "ps_adjustment.trimmingPercent" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_numeric(
+        "",
+        default = as.numeric(.studyAgentGetNestedValue(working, path) %||% 5),
+        min_value = 0
+      )
+    ),
+    "ps_adjustment.equipoiseLowerBound" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_numeric(
+        "",
+        default = as.numeric(.studyAgentGetNestedValue(working, path) %||% 0.25),
+        min_value = 0
+      )
+    ),
+    "ps_adjustment.equipoiseUpperBound" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_numeric(
+        "",
+        default = as.numeric(.studyAgentGetNestedValue(working, path) %||% 0.75),
+        min_value = 0
+      )
+    ),
+    "create_ps.maxCohortSizeForFitting" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_integer(
+        "",
+        default = as.integer(.studyAgentGetNestedValue(working, path)),
+        min_value = 0L,
+        allow_negative = FALSE
+      )
+    ),
+    "create_ps.errorOnHighCorrelation" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    "create_ps.useRegularization" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    "match_on_ps.caliper" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_numeric(
+        "",
+        default = as.numeric(.studyAgentGetNestedValue(working, path)),
+        min_value = 0
+      )
+    ),
+    "match_on_ps.caliperScale" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_choice(
+        "",
+        choices = c("propensity score", "standardized", "standardized logit"),
+        labels = c("Propensity score", "Standardized", "Standardized logit"),
+        default = .studyAgentGetNestedValue(working, path) %||% "standardized logit"
+      )
+    ),
+    "stratify_by_ps.baseSelection" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_choice(
+        "",
+        choices = c("all", "target", "comparator"),
+        labels = c("Entire study population", "Target", "Comparator"),
+        default = .studyAgentGetNestedValue(working, path) %||% "all"
+      )
+    ),
+    "fit_outcome_model.stratified" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    "fit_outcome_model.useCovariates" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    "fit_outcome_model.inversePtWeighting" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    "fit_outcome_model.useRegularization" = .studyAgentSetNestedValue(
+      working,
+      path,
+      ask_yesno(
+        "",
+        default = isTRUE(.studyAgentGetNestedValue(working, path))
+      )
+    ),
+    stop(sprintf("Unsupported analytic setting customization path: %s", path))
+  )
+
+  updated
+}
+
+.studyAgentCustomizeAnalyticSettings <- function(working,
+                                                 paths,
+                                                 ask_yesno,
+                                                 ask_choice,
+                                                 ask_integer,
+                                                 ask_numeric) {
+  updated <- working
+  for (path in paths) {
+    updated <- .studyAgentPromptAnalyticSetting(
+      updated,
+      path,
+      ask_yesno = ask_yesno,
+      ask_choice = ask_choice,
+      ask_integer = ask_integer,
+      ask_numeric = ask_numeric
+    )
+  }
+  updated
+}
+
+.studyAgentSummaryPathsForSection <- function(section_name, section_paths, settings) {
+  paths <- section_paths[[section_name]]
+  if (!identical(section_name, "propensity_score_adjustment")) {
+    return(paths)
+  }
+
+  strategy <- .studyAgentGetNestedValue(settings, "ps_adjustment.strategy")
+  if (identical(strategy, "match_on_ps")) {
+    trim_strategy <- .studyAgentGetNestedValue(settings, "ps_adjustment.trimmingStrategy")
+    trim_paths <- c("ps_adjustment.trimmingStrategy")
+    if (identical(trim_strategy, "by_percent")) {
+      trim_paths <- c(trim_paths, "ps_adjustment.trimmingPercent")
+    } else if (identical(trim_strategy, "by_equipoise")) {
+      trim_paths <- c(trim_paths, "ps_adjustment.equipoiseLowerBound", "ps_adjustment.equipoiseUpperBound")
+    }
+    return(c(
+      trim_paths,
+      "ps_adjustment.strategy",
+      "create_ps.maxCohortSizeForFitting",
+      "create_ps.errorOnHighCorrelation",
+      "create_ps.useRegularization",
+      "match_on_ps.maxRatio",
+      "match_on_ps.caliper",
+      "match_on_ps.caliperScale"
+    ))
+  }
+  if (identical(strategy, "stratify_by_ps")) {
+    trim_strategy <- .studyAgentGetNestedValue(settings, "ps_adjustment.trimmingStrategy")
+    trim_paths <- c("ps_adjustment.trimmingStrategy")
+    if (identical(trim_strategy, "by_percent")) {
+      trim_paths <- c(trim_paths, "ps_adjustment.trimmingPercent")
+    } else if (identical(trim_strategy, "by_equipoise")) {
+      trim_paths <- c(trim_paths, "ps_adjustment.equipoiseLowerBound", "ps_adjustment.equipoiseUpperBound")
+    }
+    return(c(
+      trim_paths,
+      "ps_adjustment.strategy",
+      "create_ps.maxCohortSizeForFitting",
+      "create_ps.errorOnHighCorrelation",
+      "create_ps.useRegularization",
+      "stratify_by_ps.numberOfStrata",
+      "stratify_by_ps.baseSelection"
+    ))
+  }
+  trim_strategy <- .studyAgentGetNestedValue(settings, "ps_adjustment.trimmingStrategy")
+  trim_paths <- c("ps_adjustment.trimmingStrategy")
+  if (identical(trim_strategy, "by_percent")) {
+    trim_paths <- c(trim_paths, "ps_adjustment.trimmingPercent")
+  } else if (identical(trim_strategy, "by_equipoise")) {
+    trim_paths <- c(trim_paths, "ps_adjustment.equipoiseLowerBound", "ps_adjustment.equipoiseUpperBound")
+  }
+  c(trim_paths, "ps_adjustment.strategy")
+}
+
+.studyAgentPrintFinalSettingsSummary <- function(settings, section_paths) {
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+  docs <- .studyAgentAnalyticSettingDocs()
+  section_titles <- .studyAgentAnalyticSettingsSectionTitles()
+  cat("\nFinal analytic settings\n")
+  cat(sprintf("Profile name: %s\n", .studyAgentFormatAnalyticSettingValue(settings$profile_name)))
+  for (section_name in names(section_paths)) {
+    title <- section_titles[[section_name]] %||% gsub("_", " ", section_name, fixed = TRUE)
+    cat(sprintf("[%s]\n", title))
+    for (path in .studyAgentSummaryPathsForSection(section_name, section_paths, settings)) {
+      label <- .studyAgentSummaryLabel(path)
+      value <- .studyAgentFormatAnalyticSettingValue(.studyAgentGetNestedValue(settings, path), path = path)
+      cat(sprintf("  - %s: %s\n", label, value))
+    }
+  }
+}
+
+.studyAgentDefaultCohortMethodAnalyticSettings <- function(covariate_enabled = FALSE) {
+  list(
+    profile_name = "Analytic Setting 1",
+    source = "manual_shell",
+    customized_sections = character(0),
+    get_db_cohort_method_data = list(
+      studyStartDate = "",
+      studyEndDate = "",
+      firstExposureOnly = TRUE,
+      washoutPeriod = 365L,
+      restrictToCommonPeriod = TRUE,
+      removeDuplicateSubjects = "keep first, truncate to second"
+    ),
+    create_study_population = list(
+      maxCohortSize = 0L,
+      removeDuplicateSubjects = "keep all",
+      removeSubjectsWithPriorOutcome = TRUE,
+      priorOutcomeLookback = 99999L,
+      minDaysAtRisk = 1L,
+      riskWindowStart = 0L,
+      startAnchor = "cohort start",
+      riskWindowEnd = 0L,
+      endAnchor = "cohort end",
+      censorAtNewRiskWindow = FALSE
+    ),
+    create_ps = list(
+      estimator = "att",
+      maxCohortSizeForFitting = 250000L,
+      errorOnHighCorrelation = FALSE,
+      useRegularization = TRUE
+    ),
+    ps_adjustment = list(
+      strategy = "match_on_ps",
+      trimmingStrategy = "none",
+      trimmingPercent = 5,
+      equipoiseLowerBound = 0.25,
+      equipoiseUpperBound = 0.75
+    ),
+    match_on_ps = list(
+      caliper = 0.2,
+      caliperScale = "standardized logit",
+      maxRatio = 1L
+    ),
+    stratify_by_ps = list(
+      numberOfStrata = 10L,
+      baseSelection = "all"
+    ),
+    fit_outcome_model = list(
+      modelType = "cox",
+      stratified = FALSE,
+      useCovariates = FALSE,
+      inversePtWeighting = FALSE,
+      useRegularization = TRUE
+    ),
+    covariate_concept_sets = list(
+      enabled = isTRUE(covariate_enabled),
+      include_all_concepts = TRUE,
+      include_concept_set_id = NA_integer_,
+      exclude_concept_set_id = NA_integer_
+    )
+  )
+}
+
+.studyAgentGetNestedValue <- function(x, path) {
+  parts <- strsplit(path, ".", fixed = TRUE)[[1]]
+  current <- x
+  for (part in parts) {
+    if (!is.list(current) || is.null(current[[part]])) return(NULL)
+    current <- current[[part]]
+  }
+  current
+}
+
+.studyAgentSetNestedValue <- function(x, path, value) {
+  parts <- strsplit(path, ".", fixed = TRUE)[[1]]
+
+  set_rec <- function(obj, idx = 1L) {
+    key <- parts[[idx]]
+    if (idx == length(parts)) {
+      obj[[key]] <- value
+      return(obj)
+    }
+    child <- obj[[key]]
+    if (!is.list(child)) child <- list()
+    obj[[key]] <- set_rec(child, idx + 1L)
+    obj
+  }
+
+  set_rec(x, 1L)
+}
+
+.studyAgentResetSectionPaths <- function(current_settings, default_settings, paths) {
+  updated <- current_settings
+  for (path in paths) {
+    updated <- .studyAgentSetNestedValue(
+      updated,
+      path,
+      .studyAgentGetNestedValue(default_settings, path)
+    )
+  }
+  updated
+}
+
+.studyAgentDeepMerge <- function(defaults, overrides) {
+  if (is.null(overrides)) return(defaults)
+  for (name in names(overrides)) {
+    override_value <- overrides[[name]]
+    default_value <- defaults[[name]]
+    if (is.list(default_value) && is.list(override_value) && !is.data.frame(override_value)) {
+      defaults[[name]] <- .studyAgentDeepMerge(default_value, override_value)
+    } else if (!is.null(override_value)) {
+      defaults[[name]] <- override_value
+    }
+  }
+  defaults
+}
+
+.studyAgentDateStringOrEmpty <- function(value, label) {
+  if (is.null(value) || length(value) == 0 || is.na(value)) return("")
+  value <- trimws(as.character(value[[1]]))
+  if (!nzchar(value)) return("")
+  if (grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", value)) {
+    return(gsub("-", "", value, fixed = TRUE))
+  }
+  if (grepl("^[0-9]{8}$", value)) return(value)
+  stop(sprintf("%s must be blank or formatted as YYYY-MM-DD.", label))
+}
+
+.studyAgentCollectStepByStepAnalyticSettings <- function(default_settings,
+                                                         seed_settings,
+                                                         interactive = TRUE,
+                                                         io = NULL) {
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+
+  normalize_seed <- function(settings) {
+    settings <- settings %||% list()
+    if (is.null(settings$ps_adjustment)) {
+      settings$ps_adjustment <- list(strategy = "match_on_ps")
+    }
+    if (is.null(settings$stratify_by_ps)) {
+      settings$stratify_by_ps <- list(
+        numberOfStrata = default_settings$stratify_by_ps$numberOfStrata,
+        baseSelection = default_settings$stratify_by_ps$baseSelection
+      )
+    }
+    settings
+  }
+
+  ask_text <- function(prompt, default = "", allow_blank = FALSE) {
+    if (!isTRUE(interactive)) return(default)
+    value <- io$text(prompt = prompt, default = default, allow_blank = allow_blank)
+    trimmed <- trimws(as.character(value %||% ""))
+    if (!nzchar(trimmed) && !isTRUE(allow_blank)) {
+      stop(sprintf("A non-empty value is required for: %s", prompt))
+    }
+    trimmed
+  }
+
+  ask_yesno <- function(prompt, default = TRUE) {
+    if (!isTRUE(interactive)) return(default)
+    io$yesno(prompt = prompt, default = default)
+  }
+
+  ask_choice <- function(prompt, choices, default, labels = choices) {
+    if (!isTRUE(interactive)) return(default)
+    io$choice(prompt = prompt, choices = choices, default = default, labels = labels)
+  }
+
+  ask_integer <- function(prompt, default, min_value = NULL, allow_negative = TRUE) {
+    if (!isTRUE(interactive)) return(as.integer(default))
+    io$integer(
+      prompt = prompt,
+      default = default,
+      min_value = min_value,
+      allow_negative = allow_negative
+    )
+  }
+
+  ask_numeric <- function(prompt, default, min_value = NULL) {
+    if (!isTRUE(interactive)) return(as.numeric(default))
+    io$numeric(prompt = prompt, default = default, min_value = min_value)
+  }
+
+  section_paths <- .studyAgentAnalyticSettingsSectionPaths()
+  working <- .studyAgentDeepMerge(default_settings, normalize_seed(seed_settings))
+  working <- .studyAgentSetNestedValue(
+    working,
+    "get_db_cohort_method_data.removeDuplicateSubjects",
+    .studyAgentGetNestedValue(default_settings, "get_db_cohort_method_data.removeDuplicateSubjects")
+  )
+  working <- .studyAgentSetNestedValue(
+    working,
+    "create_ps.estimator",
+    .studyAgentGetNestedValue(default_settings, "create_ps.estimator")
+  )
+  working <- .studyAgentSetNestedValue(
+    working,
+    "create_ps.errorOnHighCorrelation",
+    isTRUE(.studyAgentGetNestedValue(default_settings, "create_ps.errorOnHighCorrelation"))
+  )
+  working <- .studyAgentSetNestedValue(
+    working,
+    "create_ps.useRegularization",
+    isTRUE(.studyAgentGetNestedValue(default_settings, "create_ps.useRegularization"))
+  )
+  working <- .studyAgentSetNestedValue(
+    working,
+    "stratify_by_ps.baseSelection",
+    .studyAgentGetNestedValue(default_settings, "stratify_by_ps.baseSelection")
+  )
+  working$source <- "manual_shell"
+  working$customized_sections <- character(0)
+
+  show_section <- function(label) {
+    if (isTRUE(interactive) && !is.null(io$section_header)) {
+      io$section_header(label)
+    }
+  }
+
+  show_section("Study Population")
+  study_start <- ask_text(
+    "Study start date (YYYY-MM-DD, leave blank for no restriction)",
+    default = .studyAgentFormatDateForPrompt(.studyAgentGetNestedValue(working, "get_db_cohort_method_data.studyStartDate")),
+    allow_blank = TRUE
+  )
+  study_end <- ask_text(
+    "Study end date (YYYY-MM-DD, leave blank for no restriction)",
+    default = .studyAgentFormatDateForPrompt(.studyAgentGetNestedValue(working, "get_db_cohort_method_data.studyEndDate")),
+    allow_blank = TRUE
+  )
+  working <- .studyAgentSetNestedValue(
+    working,
+    "get_db_cohort_method_data.studyStartDate",
+    .studyAgentDateStringOrEmpty(study_start, "Study start date")
+  )
+  working <- .studyAgentSetNestedValue(
+    working,
+    "get_db_cohort_method_data.studyEndDate",
+    .studyAgentDateStringOrEmpty(study_end, "Study end date")
+  )
+  study_population_non_core <- setdiff(
+    section_paths$study_population,
+    c(
+      "get_db_cohort_method_data.studyStartDate",
+      "get_db_cohort_method_data.studyEndDate"
+    )
+  )
+  if (isTRUE(interactive)) {
+    keep_study_population_defaults <- .studyAgentPromptKeepDefaults(
+      "For the remaining study population settings, keep the defaults or choose each option yourself?",
+      default_settings,
+      study_population_non_core
+      ,
+      ask_yesno
+    )
+    if (isTRUE(keep_study_population_defaults)) {
+      working <- .studyAgentResetSectionPaths(working, default_settings, study_population_non_core)
+    } else {
+      working <- .studyAgentCustomizeAnalyticSettings(
+        working,
+        study_population_non_core,
+        ask_yesno = ask_yesno,
+        ask_choice = ask_choice,
+        ask_integer = ask_integer,
+        ask_numeric = ask_numeric
+      )
+    }
+  }
+
+  show_section("Time At Risk")
+  anchor_choices <- c("cohort start", "cohort end")
+  anchor_labels <- c("cohort start date", "cohort end date")
+  working <- .studyAgentSetNestedValue(
+    working,
+    "create_study_population.startAnchor",
+    ask_choice(
+      "Risk window start anchor",
+      choices = anchor_choices,
+      labels = anchor_labels,
+      default = .studyAgentGetNestedValue(working, "create_study_population.startAnchor") %||% anchor_choices[[1]]
+    )
+  )
+  working <- .studyAgentSetNestedValue(
+    working,
+    "create_study_population.riskWindowStart",
+    ask_integer(
+      "Risk window start (days)",
+      default = as.integer(.studyAgentGetNestedValue(working, "create_study_population.riskWindowStart")),
+      allow_negative = TRUE
+    )
+  )
+  working <- .studyAgentSetNestedValue(
+    working,
+    "create_study_population.endAnchor",
+    ask_choice(
+      "Risk window end anchor",
+      choices = anchor_choices,
+      labels = anchor_labels,
+      default = .studyAgentGetNestedValue(working, "create_study_population.endAnchor") %||% anchor_choices[[2]]
+    )
+  )
+  working <- .studyAgentSetNestedValue(
+    working,
+    "create_study_population.riskWindowEnd",
+    ask_integer(
+      "Risk window end (days)",
+      default = as.integer(.studyAgentGetNestedValue(working, "create_study_population.riskWindowEnd")),
+      allow_negative = TRUE
+    )
+  )
+  if (isTRUE(interactive)) {
+    tar_non_core <- c("create_study_population.minDaysAtRisk")
+    keep_tar_defaults <- .studyAgentPromptKeepDefaults(
+      "For the remaining time-at-risk settings, keep the defaults or choose each option yourself?",
+      default_settings,
+      tar_non_core,
+      ask_yesno
+    )
+    if (isTRUE(keep_tar_defaults)) {
+      working <- .studyAgentResetSectionPaths(working, default_settings, tar_non_core)
+    } else {
+      working <- .studyAgentCustomizeAnalyticSettings(
+        working,
+        tar_non_core,
+        ask_yesno = ask_yesno,
+        ask_choice = ask_choice,
+        ask_integer = ask_integer,
+        ask_numeric = ask_numeric
+      )
+    }
+  }
+
+  show_section("Propensity Score Adjustment")
+  strategy_choices <- c("match_on_ps", "stratify_by_ps", "none")
+  strategy_labels <- c("Match on propensity score", "Stratify on propensity score", "None")
+  working <- .studyAgentSetNestedValue(
+    working,
+    "ps_adjustment.strategy",
+    ask_choice(
+      "PS adjustment strategy",
+      choices = strategy_choices,
+      labels = strategy_labels,
+      default = .studyAgentGetNestedValue(working, "ps_adjustment.strategy") %||% strategy_choices[[1]]
+    )
+  )
+  current_strategy <- .studyAgentGetNestedValue(working, "ps_adjustment.strategy") %||% "match_on_ps"
+  if (isTRUE(interactive)) {
+    if (identical(current_strategy, "none")) {
+      ps_default_paths <- c(
+        "ps_adjustment.trimmingStrategy",
+        "create_ps.maxCohortSizeForFitting",
+        "create_ps.errorOnHighCorrelation",
+        "create_ps.useRegularization"
+      )
+      keep_ps_defaults <- .studyAgentPromptKeepDefaults(
+        "For the remaining propensity score adjustment settings, keep the defaults?",
+        default_settings,
+        ps_default_paths,
+        ask_yesno
+      )
+      if (isTRUE(keep_ps_defaults)) {
+        working <- .studyAgentResetSectionPaths(
+          working,
+          default_settings,
+          c(
+            ps_default_paths,
+            "ps_adjustment.trimmingPercent",
+            "ps_adjustment.equipoiseLowerBound",
+            "ps_adjustment.equipoiseUpperBound"
+          )
+        )
+      } else {
+        working <- .studyAgentCustomizeAnalyticSettings(
+          working,
+          ps_default_paths,
+          ask_yesno = ask_yesno,
+          ask_choice = ask_choice,
+          ask_integer = ask_integer,
+          ask_numeric = ask_numeric
+        )
+      }
+      working <- .studyAgentResetSectionPaths(
+        working,
+        default_settings,
+        c(
+          "match_on_ps.caliper",
+          "match_on_ps.caliperScale",
+          "match_on_ps.maxRatio",
+          "stratify_by_ps.numberOfStrata",
+          "stratify_by_ps.baseSelection"
+        )
+      )
+    } else if (identical(current_strategy, "match_on_ps")) {
+      working <- .studyAgentSetNestedValue(
+        working,
+        "match_on_ps.maxRatio",
+        ask_integer(
+          "Maximum match ratio (0 means no maximum)",
+          default = as.integer(.studyAgentGetNestedValue(working, "match_on_ps.maxRatio")),
+          min_value = 0L,
+          allow_negative = FALSE
+        )
+      )
+      ps_default_paths <- c(
+        "ps_adjustment.trimmingStrategy",
+        "create_ps.maxCohortSizeForFitting",
+        "create_ps.errorOnHighCorrelation",
+        "create_ps.useRegularization",
+        "match_on_ps.caliper",
+        "match_on_ps.caliperScale"
+      )
+      keep_ps_defaults <- .studyAgentPromptKeepDefaults(
+        "For the remaining propensity score adjustment settings, keep the defaults?",
+        default_settings,
+        ps_default_paths,
+        ask_yesno
+      )
+      if (isTRUE(keep_ps_defaults)) {
+        working <- .studyAgentResetSectionPaths(
+          working,
+          default_settings,
+          c(
+            ps_default_paths,
+            "ps_adjustment.trimmingPercent",
+            "ps_adjustment.equipoiseLowerBound",
+            "ps_adjustment.equipoiseUpperBound"
+          )
+        )
+      } else {
+        working <- .studyAgentCustomizeAnalyticSettings(
+          working,
+          ps_default_paths,
+          ask_yesno = ask_yesno,
+          ask_choice = ask_choice,
+          ask_integer = ask_integer,
+          ask_numeric = ask_numeric
+        )
+      }
+      working <- .studyAgentResetSectionPaths(
+        working,
+        default_settings,
+        c("stratify_by_ps.numberOfStrata", "stratify_by_ps.baseSelection")
+      )
+    } else if (identical(current_strategy, "stratify_by_ps")) {
+      working <- .studyAgentSetNestedValue(
+        working,
+        "stratify_by_ps.numberOfStrata",
+        ask_integer(
+          "Number of strata",
+          default = as.integer(.studyAgentGetNestedValue(working, "stratify_by_ps.numberOfStrata")),
+          min_value = 1L,
+          allow_negative = FALSE
+        )
+      )
+      working <- .studyAgentSetNestedValue(
+        working,
+        "stratify_by_ps.baseSelection",
+        .studyAgentGetNestedValue(default_settings, "stratify_by_ps.baseSelection")
+      )
+      ps_default_paths <- c(
+        "ps_adjustment.trimmingStrategy",
+        "create_ps.maxCohortSizeForFitting",
+        "create_ps.errorOnHighCorrelation",
+        "create_ps.useRegularization",
+        "stratify_by_ps.baseSelection"
+      )
+      keep_ps_defaults <- .studyAgentPromptKeepDefaults(
+        "For the remaining propensity score adjustment settings, keep the defaults?",
+        default_settings,
+        ps_default_paths,
+        ask_yesno
+      )
+      if (isTRUE(keep_ps_defaults)) {
+        working <- .studyAgentResetSectionPaths(
+          working,
+          default_settings,
+          c(
+            ps_default_paths,
+            "ps_adjustment.trimmingPercent",
+            "ps_adjustment.equipoiseLowerBound",
+            "ps_adjustment.equipoiseUpperBound"
+          )
+        )
+      } else {
+        working <- .studyAgentCustomizeAnalyticSettings(
+          working,
+          ps_default_paths,
+          ask_yesno = ask_yesno,
+          ask_choice = ask_choice,
+          ask_integer = ask_integer,
+          ask_numeric = ask_numeric
+        )
+      }
+      working <- .studyAgentResetSectionPaths(
+        working,
+        default_settings,
+        c("match_on_ps.caliper", "match_on_ps.caliperScale", "match_on_ps.maxRatio")
+      )
+    }
+  }
+
+  show_section("Outcome Model")
+  outcome_model_defaults <- .studyAgentOutcomeModelDefaults(
+    ps_strategy = current_strategy,
+    match_max_ratio = .studyAgentGetNestedValue(working, "match_on_ps.maxRatio"),
+    model_type = .studyAgentGetNestedValue(working, "fit_outcome_model.modelType") %||% default_settings$fit_outcome_model$modelType
+  )
+  model_choices <- c("cox", "poisson", "logistic")
+  model_labels <- c("Cox proportional hazards", "Poisson regression", "Logistic regression")
+  working <- .studyAgentSetNestedValue(
+    working,
+    "fit_outcome_model.modelType",
+    ask_choice(
+      "Outcome model",
+      choices = model_choices,
+      labels = model_labels,
+      default = .studyAgentGetNestedValue(working, "fit_outcome_model.modelType") %||% model_choices[[1]]
+    )
+  )
+  outcome_model_defaults$modelType <- .studyAgentGetNestedValue(working, "fit_outcome_model.modelType") %||% outcome_model_defaults$modelType
+  outcome_defaults_for_display <- .studyAgentDeepMerge(
+    default_settings,
+    list(fit_outcome_model = outcome_model_defaults)
+  )
+  keep_outcome_defaults <- !isTRUE(interactive)
+  if (isTRUE(interactive)) {
+    keep_outcome_defaults <- .studyAgentPromptKeepDefaults(
+      "For the remaining outcome model settings, keep the defaults or choose each option yourself?",
+      outcome_defaults_for_display,
+      setdiff(section_paths$outcome_model, "fit_outcome_model.modelType")
+      ,
+      ask_yesno
+    )
+    if (!isTRUE(keep_outcome_defaults)) {
+      working <- .studyAgentSetNestedValue(working, "fit_outcome_model.stratified", isTRUE(outcome_model_defaults$stratified))
+      working <- .studyAgentSetNestedValue(working, "fit_outcome_model.useCovariates", isTRUE(outcome_model_defaults$useCovariates))
+      working <- .studyAgentSetNestedValue(working, "fit_outcome_model.inversePtWeighting", isTRUE(outcome_model_defaults$inversePtWeighting))
+      working <- .studyAgentSetNestedValue(working, "fit_outcome_model.useRegularization", isTRUE(outcome_model_defaults$useRegularization))
+      working <- .studyAgentCustomizeAnalyticSettings(
+        working,
+        setdiff(section_paths$outcome_model, "fit_outcome_model.modelType"),
+        ask_yesno = ask_yesno,
+        ask_choice = ask_choice,
+        ask_integer = ask_integer,
+        ask_numeric = ask_numeric
+      )
+    }
+  }
+  if (isTRUE(keep_outcome_defaults)) {
+    working <- .studyAgentSetNestedValue(working, "fit_outcome_model.stratified", isTRUE(outcome_model_defaults$stratified))
+    working <- .studyAgentSetNestedValue(working, "fit_outcome_model.useCovariates", isTRUE(outcome_model_defaults$useCovariates))
+    working <- .studyAgentSetNestedValue(working, "fit_outcome_model.inversePtWeighting", isTRUE(outcome_model_defaults$inversePtWeighting))
+    working <- .studyAgentSetNestedValue(working, "fit_outcome_model.useRegularization", isTRUE(outcome_model_defaults$useRegularization))
+  }
+
+  if (isTRUE(interactive)) {
+    working$profile_name <- ask_text(
+      "Analytic settings profile name",
+      default = as.character(working$profile_name %||% default_settings$profile_name),
+      allow_blank = FALSE
+    )
+    .studyAgentPrintFinalSettingsSummary(working, section_paths)
+  }
+
+  customized_sections <- names(section_paths)[vapply(names(section_paths), function(section_name) {
+    paths <- section_paths[[section_name]]
+    any(vapply(paths, function(path) {
+      !identical(
+        .studyAgentGetNestedValue(working, path),
+        .studyAgentGetNestedValue(default_settings, path)
+      )
+    }, logical(1)))
+  }, logical(1))]
+  working$customized_sections <- customized_sections
+
+  list(
+    settings = working,
+    section_flow = names(section_paths),
+    customized_sections = customized_sections
+  )
+}
+
 runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-methods",
                                            acpUrl = "http://127.0.0.1:8765",
                                            studyIntent = NULL,
@@ -169,7 +1441,9 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     )
 
     repeat {
-      entered <- tolower(trimws(readline(sprintf("%s %s ", prompt, suffix))))
+      prompt_text <- trimws(as.character(prompt %||% ""))
+      rendered_prompt <- if (nzchar(prompt_text)) sprintf("%s %s ", prompt_text, suffix) else sprintf("%s ", suffix)
+      entered <- tolower(trimws(readline(rendered_prompt)))
       if (entered == "") return(default)
       if (entered %in% options$yes) return(TRUE)
       if (entered %in% options$no) return(FALSE)
@@ -203,7 +1477,9 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     }
     prompt_suffix <- if (is.null(default)) "" else sprintf(" [%s]", default)
     repeat {
-      entered <- trimws(readline(sprintf("%s%s: ", prompt, prompt_suffix)))
+      prompt_text <- trimws(as.character(prompt %||% ""))
+      rendered_prompt <- if (nzchar(prompt_text)) sprintf("%s%s: ", prompt_text, prompt_suffix) else sprintf("%s: ", prompt_suffix)
+      entered <- trimws(readline(rendered_prompt))
       if (entered == "") {
         if (allow_null) return(NULL)
         if (is.null(default)) {
@@ -236,7 +1512,9 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     }
     prompt_suffix <- if (is.null(default)) "" else sprintf(" [%s]", default)
     repeat {
-      entered <- trimws(readline(sprintf("%s%s: ", prompt, prompt_suffix)))
+      prompt_text <- trimws(as.character(prompt %||% ""))
+      rendered_prompt <- if (nzchar(prompt_text)) sprintf("%s%s: ", prompt_text, prompt_suffix) else sprintf("%s: ", prompt_suffix)
+      entered <- trimws(readline(rendered_prompt))
       if (entered == "") {
         if (is.null(default)) {
           cat("A value is required.\n")
@@ -276,7 +1554,9 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     }
 
     repeat {
-      entered <- trimws(readline(sprintf("%s [%s]: ", prompt, default)))
+      prompt_text <- trimws(as.character(prompt %||% ""))
+      rendered_prompt <- if (nzchar(prompt_text)) sprintf("%s [%s]: ", prompt_text, default) else sprintf("[%s]: ", default)
+      entered <- trimws(readline(rendered_prompt))
       if (entered == "") {
         return(default)
       }
@@ -747,6 +2027,10 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   }
 
   normalize_analytic_settings <- function(settings) {
+    validate_date_or_blank <- function(value, label) {
+      .studyAgentDateStringOrEmpty(value, label)
+    }
+
     allowed_sections <- c(
       "study_population",
       "covariate_settings",
@@ -776,6 +2060,14 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     settings$profile_name <- profile_name
     settings$source <- "manual_shell"
     settings$customized_sections <- customized_sections
+    settings$get_db_cohort_method_data$studyStartDate <- validate_date_or_blank(
+      settings$get_db_cohort_method_data$studyStartDate,
+      "analytic_settings.get_db_cohort_method_data.studyStartDate"
+    )
+    settings$get_db_cohort_method_data$studyEndDate <- validate_date_or_blank(
+      settings$get_db_cohort_method_data$studyEndDate,
+      "analytic_settings.get_db_cohort_method_data.studyEndDate"
+    )
     settings$get_db_cohort_method_data$firstExposureOnly <- validate_logical_value(
       settings$get_db_cohort_method_data$firstExposureOnly,
       "analytic_settings.get_db_cohort_method_data.firstExposureOnly"
@@ -791,13 +2083,18 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     )
     settings$get_db_cohort_method_data$removeDuplicateSubjects <- validate_choice(
       settings$get_db_cohort_method_data$removeDuplicateSubjects,
-      c("keep all", "keep first", "remove all"),
+      c("keep all", "keep first", "remove all", "keep first, truncate to second"),
       "analytic_settings.get_db_cohort_method_data.removeDuplicateSubjects"
     )
     settings$create_study_population$removeDuplicateSubjects <- validate_choice(
       settings$create_study_population$removeDuplicateSubjects,
       c("keep all", "keep first", "remove all"),
       "analytic_settings.create_study_population.removeDuplicateSubjects"
+    )
+    settings$create_study_population$maxCohortSize <- validate_integer_value(
+      settings$create_study_population$maxCohortSize,
+      "analytic_settings.create_study_population.maxCohortSize",
+      min_value = 0L
     )
     settings$create_study_population$removeSubjectsWithPriorOutcome <- validate_logical_value(
       settings$create_study_population$removeSubjectsWithPriorOutcome,
@@ -806,6 +2103,11 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     settings$create_study_population$priorOutcomeLookback <- validate_integer_value(
       settings$create_study_population$priorOutcomeLookback,
       "analytic_settings.create_study_population.priorOutcomeLookback",
+      min_value = 0L
+    )
+    settings$create_study_population$minDaysAtRisk <- validate_integer_value(
+      settings$create_study_population$minDaysAtRisk,
+      "analytic_settings.create_study_population.minDaysAtRisk",
       min_value = 0L
     )
     settings$create_study_population$riskWindowStart <- validate_integer_value(
@@ -840,10 +2142,18 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       "analytic_settings.create_ps.maxCohortSizeForFitting",
       min_value = 0L
     )
+    settings$create_ps$errorOnHighCorrelation <- validate_logical_value(
+      settings$create_ps$errorOnHighCorrelation,
+      "analytic_settings.create_ps.errorOnHighCorrelation"
+    )
+    settings$create_ps$useRegularization <- validate_logical_value(
+      settings$create_ps$useRegularization,
+      "analytic_settings.create_ps.useRegularization"
+    )
     settings$match_on_ps$caliper <- validate_numeric_value(
       settings$match_on_ps$caliper,
       "analytic_settings.match_on_ps.caliper",
-      min_value = .Machine$double.eps
+      min_value = 0
     )
     settings$match_on_ps$caliperScale <- validate_choice(
       settings$match_on_ps$caliperScale,
@@ -853,7 +2163,49 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     settings$match_on_ps$maxRatio <- validate_integer_value(
       settings$match_on_ps$maxRatio,
       "analytic_settings.match_on_ps.maxRatio",
+      min_value = 0L
+    )
+    settings$ps_adjustment$strategy <- validate_choice(
+      settings$ps_adjustment$strategy,
+      c("match_on_ps", "stratify_by_ps", "none"),
+      "analytic_settings.ps_adjustment.strategy"
+    )
+    settings$ps_adjustment$trimmingStrategy <- validate_choice(
+      settings$ps_adjustment$trimmingStrategy,
+      c("none", "by_percent", "by_equipoise"),
+      "analytic_settings.ps_adjustment.trimmingStrategy"
+    )
+    settings$ps_adjustment$trimmingPercent <- validate_numeric_value(
+      settings$ps_adjustment$trimmingPercent,
+      "analytic_settings.ps_adjustment.trimmingPercent",
+      min_value = 0
+    )
+    if (settings$ps_adjustment$trimmingPercent >= 50) {
+      stop("analytic_settings.ps_adjustment.trimmingPercent must be < 50.")
+    }
+    settings$ps_adjustment$equipoiseLowerBound <- validate_numeric_value(
+      settings$ps_adjustment$equipoiseLowerBound,
+      "analytic_settings.ps_adjustment.equipoiseLowerBound",
+      min_value = 0
+    )
+    settings$ps_adjustment$equipoiseUpperBound <- validate_numeric_value(
+      settings$ps_adjustment$equipoiseUpperBound,
+      "analytic_settings.ps_adjustment.equipoiseUpperBound",
+      min_value = 0
+    )
+    if (settings$ps_adjustment$equipoiseLowerBound >= settings$ps_adjustment$equipoiseUpperBound ||
+        settings$ps_adjustment$equipoiseUpperBound > 1) {
+      stop("analytic_settings.ps_adjustment equipoise bounds must satisfy 0 <= lower < upper <= 1.")
+    }
+    settings$stratify_by_ps$numberOfStrata <- validate_integer_value(
+      settings$stratify_by_ps$numberOfStrata,
+      "analytic_settings.stratify_by_ps.numberOfStrata",
       min_value = 1L
+    )
+    settings$stratify_by_ps$baseSelection <- validate_choice(
+      settings$stratify_by_ps$baseSelection,
+      c("all", "target", "comparator"),
+      "analytic_settings.stratify_by_ps.baseSelection"
     )
     settings$fit_outcome_model$modelType <- validate_choice(
       settings$fit_outcome_model$modelType,
@@ -863,6 +2215,18 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     settings$fit_outcome_model$stratified <- validate_logical_value(
       settings$fit_outcome_model$stratified,
       "analytic_settings.fit_outcome_model.stratified"
+    )
+    settings$fit_outcome_model$useCovariates <- validate_logical_value(
+      settings$fit_outcome_model$useCovariates,
+      "analytic_settings.fit_outcome_model.useCovariates"
+    )
+    settings$fit_outcome_model$inversePtWeighting <- validate_logical_value(
+      settings$fit_outcome_model$inversePtWeighting,
+      "analytic_settings.fit_outcome_model.inversePtWeighting"
+    )
+    settings$fit_outcome_model$useRegularization <- validate_logical_value(
+      settings$fit_outcome_model$useRegularization,
+      "analytic_settings.fit_outcome_model.useRegularization"
     )
     settings$covariate_concept_sets$enabled <- validate_logical_value(
       settings$covariate_concept_sets$enabled,
@@ -1461,57 +2825,16 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     excludeCovariateConceptSetId <- NULL
   }
 
-  cached_sections <- cached_inputs$analytic_settings_customized_sections %||%
-    cached_inputs$customized_sections %||%
-    cached_analytics$customized_sections %||% character(0)
-  cached_sections <- as.character(unlist(cached_sections, use.names = FALSE))
-  cached_sections <- cached_sections[nzchar(cached_sections)]
-
-  default_analytic_settings <- list(
-    profile_name = "Propensity score matching",
-    source = "manual_shell",
-    customized_sections = character(0),
-    get_db_cohort_method_data = list(
-      firstExposureOnly = TRUE,
-      washoutPeriod = 365L,
-      restrictToCommonPeriod = TRUE,
-      removeDuplicateSubjects = "keep all"
-    ),
-    create_study_population = list(
-      removeDuplicateSubjects = "remove all",
-      removeSubjectsWithPriorOutcome = TRUE,
-      priorOutcomeLookback = 99999L,
-      riskWindowStart = 1L,
-      startAnchor = "cohort start",
-      riskWindowEnd = 0L,
-      endAnchor = "cohort end",
-      censorAtNewRiskWindow = TRUE
-    ),
-    create_ps = list(
-      estimator = "att",
-      maxCohortSizeForFitting = 250000L
-    ),
-    match_on_ps = list(
-      caliper = 0.2,
-      caliperScale = "standardized logit",
-      maxRatio = 100L
-    ),
-    fit_outcome_model = list(
-      modelType = "cox",
-      stratified = TRUE
-    ),
-    covariate_concept_sets = list(
-      enabled = isTRUE(covariate_enabled),
-      include_all_concepts = TRUE,
-      include_concept_set_id = NA_integer_,
-      exclude_concept_set_id = NA_integer_
-    )
+  default_analytic_settings <- .studyAgentDefaultCohortMethodAnalyticSettings(
+    covariate_enabled = covariate_enabled
   )
 
   cached_get_db <- cached_analytics$get_db_cohort_method_data %||% list()
   cached_study_pop <- cached_analytics$create_study_population %||% list()
   cached_ps <- cached_analytics$create_ps %||% list()
+  cached_ps_adjustment <- cached_analytics$ps_adjustment %||% list()
   cached_match <- cached_analytics$match_on_ps %||% list()
+  cached_stratify <- cached_analytics$stratify_by_ps %||% list()
   cached_outcome_model <- cached_analytics$fit_outcome_model %||% list()
   cached_covariates <- cached_analytics$covariate_concept_sets %||% list()
 
@@ -1526,8 +2849,16 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   effective_analytic_settings <- list(
     profile_name = merge_or_default(default_analytic_settings$profile_name, cached_analytics$profile_name),
     source = "manual_shell",
-    customized_sections = as.character(cached_sections),
+    customized_sections = character(0),
     get_db_cohort_method_data = list(
+      studyStartDate = merge_or_default(
+        default_analytic_settings$get_db_cohort_method_data$studyStartDate,
+        cached_get_db$studyStartDate
+      ),
+      studyEndDate = merge_or_default(
+        default_analytic_settings$get_db_cohort_method_data$studyEndDate,
+        cached_get_db$studyEndDate
+      ),
       firstExposureOnly = merge_or_default(
         default_analytic_settings$get_db_cohort_method_data$firstExposureOnly,
         cached_get_db$firstExposureOnly
@@ -1543,6 +2874,10 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       )
     ),
     create_study_population = list(
+      maxCohortSize = as.integer(merge_or_default(
+        default_analytic_settings$create_study_population$maxCohortSize,
+        cached_study_pop$maxCohortSize
+      )),
       removeDuplicateSubjects = merge_or_default(
         default_analytic_settings$create_study_population$removeDuplicateSubjects,
         cached_study_pop$removeDuplicateSubjects
@@ -1552,6 +2887,10 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       priorOutcomeLookback = as.integer(merge_or_default(
         default_analytic_settings$create_study_population$priorOutcomeLookback,
         cached_study_pop$priorOutcomeLookback
+      )),
+      minDaysAtRisk = as.integer(merge_or_default(
+        default_analytic_settings$create_study_population$minDaysAtRisk,
+        cached_study_pop$minDaysAtRisk
       )),
       riskWindowStart = as.integer(merge_or_default(
         default_analytic_settings$create_study_population$riskWindowStart,
@@ -1580,6 +2919,30 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       maxCohortSizeForFitting = as.integer(merge_or_default(
         default_analytic_settings$create_ps$maxCohortSizeForFitting,
         cached_ps$maxCohortSizeForFitting
+      )),
+      errorOnHighCorrelation = isTRUE(cached_ps$errorOnHighCorrelation %||% default_analytic_settings$create_ps$errorOnHighCorrelation),
+      useRegularization = isTRUE(cached_ps$useRegularization %||% default_analytic_settings$create_ps$useRegularization)
+    ),
+    ps_adjustment = list(
+      strategy = merge_or_default(
+        default_analytic_settings$ps_adjustment$strategy,
+        cached_ps_adjustment$strategy
+      ),
+      trimmingStrategy = merge_or_default(
+        default_analytic_settings$ps_adjustment$trimmingStrategy,
+        cached_ps_adjustment$trimmingStrategy
+      ),
+      trimmingPercent = as.numeric(merge_or_default(
+        default_analytic_settings$ps_adjustment$trimmingPercent,
+        cached_ps_adjustment$trimmingPercent
+      )),
+      equipoiseLowerBound = as.numeric(merge_or_default(
+        default_analytic_settings$ps_adjustment$equipoiseLowerBound,
+        cached_ps_adjustment$equipoiseLowerBound
+      )),
+      equipoiseUpperBound = as.numeric(merge_or_default(
+        default_analytic_settings$ps_adjustment$equipoiseUpperBound,
+        cached_ps_adjustment$equipoiseUpperBound
       ))
     ),
     match_on_ps = list(
@@ -1596,12 +2959,25 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
         cached_match$maxRatio
       ))
     ),
+    stratify_by_ps = list(
+      numberOfStrata = as.integer(merge_or_default(
+        default_analytic_settings$stratify_by_ps$numberOfStrata,
+        cached_stratify$numberOfStrata
+      )),
+      baseSelection = merge_or_default(
+        default_analytic_settings$stratify_by_ps$baseSelection,
+        cached_stratify$baseSelection
+      )
+    ),
     fit_outcome_model = list(
       modelType = merge_or_default(
         default_analytic_settings$fit_outcome_model$modelType,
         cached_outcome_model$modelType
       ),
-      stratified = isTRUE(cached_outcome_model$stratified %||% default_analytic_settings$fit_outcome_model$stratified)
+      stratified = isTRUE(cached_outcome_model$stratified %||% default_analytic_settings$fit_outcome_model$stratified),
+      useCovariates = isTRUE(cached_outcome_model$useCovariates %||% default_analytic_settings$fit_outcome_model$useCovariates),
+      inversePtWeighting = isTRUE(cached_outcome_model$inversePtWeighting %||% default_analytic_settings$fit_outcome_model$inversePtWeighting),
+      useRegularization = isTRUE(cached_outcome_model$useRegularization %||% default_analytic_settings$fit_outcome_model$useRegularization)
     ),
     covariate_concept_sets = list(
       enabled = isTRUE(cached_covariates$enabled %||% covariate_enabled),
@@ -1618,7 +2994,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     cat("\nHow would you like to configure analytic settings?\n")
     cat("  1. Step-by-step\n")
     cat("     Walk through the required analytic settings sections in order.\n")
-    cat("     In the current stage, the shell shows the section flow and keeps the current defaults.\n")
+    cat("     In the current stage, the shell walks the section flow and shows the OHDSI defaults for the remaining sub-settings.\n")
     cat("  2. Free-text\n")
     cat("     Describe the analytic settings you want in natural language.\n")
     cat("     The shell will create a dummy recommendation JSON, show the proposed key/value pairs, and ask you to confirm.\n")
@@ -1657,31 +3033,77 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     isTRUE(include_all_covariates)
 
   if (identical(analytic_settings_mode, "step_by_step")) {
-    effective_analytic_settings$profile_name <- if (isTRUE(interactive)) {
-      prompt_non_null_text(
-        "Analytic settings profile name",
-        default = effective_analytic_settings$profile_name
-      )
-    } else {
-      effective_analytic_settings$profile_name
-    }
-
     if (isTRUE(interactive)) {
       cat("\nAnalytic settings mode: step-by-step\n")
-      cat("The shell will walk through the required sections. Detailed prompts inside each section are TODO for now, so the current defaults will be kept.\n")
-      for (section_name in analytic_settings_section_flow) {
-        section_label <- switch(
-          section_name,
-          study_population = "Study population settings",
-          time_at_risk = "Time-at-risk settings",
-          propensity_score_adjustment = "Propensity score adjustment settings",
-          outcome_model = "Outcome model settings",
-          section_name
-        )
-        cat(sprintf("\n[%s]\n", section_label))
-        cat("TODO: Detailed section-specific prompts will be implemented in a later step. Keeping the current defaults for this section.\n")
-      }
+      cat("The shell will collect each required section in order and ask for the analytic settings profile name last.\n")
     }
+
+    step_by_step_io <- list(
+      section_header = function(label) {
+        cat(sprintf("\n[%s]\n", label))
+      },
+      text = function(prompt, default = "", allow_blank = FALSE) {
+        entered <- trimws(readline(sprintf("%s [%s]: ", prompt, default)))
+        if (!nzchar(entered)) {
+          if (isTRUE(allow_blank)) return(default)
+          return(default)
+        }
+        entered
+      },
+      yesno = function(prompt, default = TRUE) {
+        prompt_yesno_strict(prompt, default = default)
+      },
+      choice = function(prompt, choices, default, labels = choices) {
+        default_index <- match(default, choices)
+        if (is.na(default_index)) default_index <- 1L
+        selected_label <- collect_choice_value(
+          value = labels[[default_index]],
+          label = prompt,
+          choices = labels,
+          prompt = prompt,
+          default = labels[[default_index]]
+        )
+        choices[[match(selected_label, labels)]]
+      },
+      integer = function(prompt, default, min_value = NULL, allow_negative = TRUE) {
+        repeat {
+          value <- prompt_integer(
+            prompt = prompt,
+            default = default,
+            allow_null = FALSE,
+            must_be_positive = FALSE,
+            allow_negative = allow_negative
+          )
+          if (!is.null(min_value) && value < min_value) {
+            cat(sprintf("Please enter an integer >= %s.\n", min_value))
+            next
+          }
+          return(value)
+        }
+      },
+      numeric = function(prompt, default, min_value = NULL) {
+        repeat {
+          value <- prompt_numeric(
+            prompt = prompt,
+            default = default,
+            must_be_positive = FALSE
+          )
+          if (!is.null(min_value) && value < min_value) {
+            cat(sprintf("Please enter a number >= %s.\n", min_value))
+            next
+          }
+          return(value)
+        }
+      }
+    )
+    step_by_step_result <- .studyAgentCollectStepByStepAnalyticSettings(
+      default_settings = default_analytic_settings,
+      seed_settings = effective_analytic_settings,
+      interactive = interactive,
+      io = step_by_step_io
+    )
+    effective_analytic_settings <- step_by_step_result$settings
+    analytic_settings_section_flow <- step_by_step_result$section_flow
 
     analytic_settings_description <- NULL
     analytic_settings_description_path <- NULL
@@ -1796,6 +3218,20 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       break
     }
   }
+
+  effective_analytic_settings$customized_sections <- names(.studyAgentAnalyticSettingsSectionPaths())[vapply(
+    names(.studyAgentAnalyticSettingsSectionPaths()),
+    function(section_name) {
+      paths <- .studyAgentAnalyticSettingsSectionPaths()[[section_name]]
+      any(vapply(paths, function(path) {
+        !identical(
+          .studyAgentGetNestedValue(effective_analytic_settings, path),
+          .studyAgentGetNestedValue(default_analytic_settings, path)
+        )
+      }, logical(1)))
+    },
+    logical(1)
+  )]
 
   effective_analytic_settings <- normalize_analytic_settings(effective_analytic_settings)
   covariate_enabled <- isTRUE(effective_analytic_settings$covariate_concept_sets$enabled)
@@ -2072,7 +3508,9 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     get_db_cohort_method_data = effective_analytic_settings$get_db_cohort_method_data,
     create_study_population = effective_analytic_settings$create_study_population,
     create_ps = effective_analytic_settings$create_ps,
+    ps_adjustment = effective_analytic_settings$ps_adjustment,
     match_on_ps = effective_analytic_settings$match_on_ps,
+    stratify_by_ps = effective_analytic_settings$stratify_by_ps,
     fit_outcome_model = effective_analytic_settings$fit_outcome_model,
     covariate_concept_sets = effective_analytic_settings$covariate_concept_sets
   )
@@ -2454,14 +3892,33 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     "getDbDefaults <- defaults$get_db_cohort_method_data",
     "studyPopulationDefaults <- defaults$create_study_population",
     "psDefaults <- defaults$create_ps",
+    "psAdjustmentDefaults <- defaults$ps_adjustment %||% list()",
     "matchDefaults <- defaults$match_on_ps",
+    "stratifyDefaults <- defaults$stratify_by_ps %||% list()",
     "outcomeModelDefaults <- defaults$fit_outcome_model",
     "covariateConceptDefaults <- defaults$covariate_concept_sets %||% list()",
     "comparison_payload <- jsonlite::fromJSON(file.path(output_dir, 'cm_comparisons.json'), simplifyVector = FALSE)",
     "comparisons <- comparison_payload$comparisons %||% list()",
     "if (length(comparisons) == 0) stop('No comparisons found in cm_comparisons.json')",
     "comparison <- comparisons[[1]]",
-    "analyticSettingsProfile <- defaults$profile_name %||% 'Propensity score matching'",
+    "analyticSettingsProfile <- defaults$profile_name %||% 'Analytic Setting 1'",
+    "psAdjustmentStrategy <- psAdjustmentDefaults$strategy %||% 'match_on_ps'",
+    "psTrimmingStrategy <- psAdjustmentDefaults$trimmingStrategy %||% 'none'",
+    "psTrimmingPercent <- as.numeric(psAdjustmentDefaults$trimmingPercent %||% 5)",
+    "if (is.na(psTrimmingPercent)) psTrimmingPercent <- 5",
+    "equipoiseLowerBound <- as.numeric(psAdjustmentDefaults$equipoiseLowerBound %||% 0.25)",
+    "equipoiseUpperBound <- as.numeric(psAdjustmentDefaults$equipoiseUpperBound %||% 0.75)",
+    "if (is.na(equipoiseLowerBound)) equipoiseLowerBound <- 0.25",
+    "if (is.na(equipoiseUpperBound)) equipoiseUpperBound <- 0.75",
+    "matchMaxRatio <- as.integer(matchDefaults$maxRatio %||% 1L)",
+    "if (is.na(matchMaxRatio)) matchMaxRatio <- 1L",
+    "derivedOutcomeStratified <- if (identical(psAdjustmentStrategy, 'stratify_by_ps')) {",
+    "  TRUE",
+    "} else if (identical(psAdjustmentStrategy, 'match_on_ps')) {",
+    "  matchMaxRatio != 1L",
+    "} else {",
+    "  FALSE",
+    "}",
     "",
     "target_id <- as.integer(comparison$target$cohort_id %||% NA_integer_)",
     "comparator_id <- as.integer(comparison$comparator$cohort_id %||% NA_integer_)",
@@ -2481,7 +3938,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     "if (isTRUE(negativeControlConceptSet$enabled %||% FALSE)) message('TODO: Negative control concept set selected as dummy placeholder: ', negativeControlConceptSet$concept_set_id %||% NA_integer_)",
     "",
     "priorOutcomeLookback <- studyPopulationDefaults$priorOutcomeLookback %||% 99999L",
-    "riskWindowStart <- studyPopulationDefaults$riskWindowStart %||% 1L",
+    "riskWindowStart <- studyPopulationDefaults$riskWindowStart %||% 0L",
     "startAnchor <- studyPopulationDefaults$startAnchor %||% 'cohort start'",
     "riskWindowEnd <- studyPopulationDefaults$riskWindowEnd %||% 0L",
     "endAnchor <- studyPopulationDefaults$endAnchor %||% 'cohort end'",
@@ -2513,30 +3970,60 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     "  firstExposureOnly = getDbDefaults$firstExposureOnly,",
     "  washoutPeriod = getDbDefaults$washoutPeriod,",
     "  restrictToCommonPeriod = getDbDefaults$restrictToCommonPeriod,",
+    "  studyStartDate = getDbDefaults$studyStartDate %||% '',",
+    "  studyEndDate = getDbDefaults$studyEndDate %||% '',",
     "  covariateSettings = covariateSettings",
     ")",
     "createStudyPopulationArgs <- CohortMethod::createCreateStudyPopulationArgs(",
+    "  maxCohortSize = studyPopulationDefaults$maxCohortSize,",
     "  removeDuplicateSubjects = studyPopulationDefaults$removeDuplicateSubjects,",
     "  removeSubjectsWithPriorOutcome = studyPopulationDefaults$removeSubjectsWithPriorOutcome,",
     "  priorOutcomeLookback = studyPopulationDefaults$priorOutcomeLookback,",
+    "  minDaysAtRisk = studyPopulationDefaults$minDaysAtRisk,",
     "  riskWindowStart = studyPopulationDefaults$riskWindowStart,",
     "  startAnchor = studyPopulationDefaults$startAnchor,",
     "  riskWindowEnd = studyPopulationDefaults$riskWindowEnd,",
     "  endAnchor = studyPopulationDefaults$endAnchor,",
     "  censorAtNewRiskWindow = studyPopulationDefaults$censorAtNewRiskWindow",
     ")",
-    "createPsArgs <- CohortMethod::createCreatePsArgs(",
+    "psPrior <- if (isTRUE(psDefaults$useRegularization %||% TRUE)) {",
+    "  Cyclops::createPrior(priorType = 'laplace', exclude = c(0), useCrossValidation = TRUE)",
+    "} else {",
+    "  Cyclops::createPrior(priorType = 'none')",
+    "}",
+    "createPsArgs <- if (identical(psAdjustmentStrategy, 'none') && identical(psTrimmingStrategy, 'none')) NULL else CohortMethod::createCreatePsArgs(",
     "  estimator = psDefaults$estimator,",
-    "  maxCohortSizeForFitting = psDefaults$maxCohortSizeForFitting",
+    "  maxCohortSizeForFitting = psDefaults$maxCohortSizeForFitting,",
+    "  errorOnHighCorrelation = isTRUE(psDefaults$errorOnHighCorrelation %||% FALSE),",
+    "  prior = psPrior",
     ")",
-    "matchOnPsArgs <- CohortMethod::createMatchOnPsArgs(",
+    "trimByPsArgs <- if (identical(psTrimmingStrategy, 'by_percent')) {",
+    "  CohortMethod::createTrimByPsArgs(",
+    "    trimFraction = psTrimmingPercent / 100,",
+    "    trimMethod = 'symmetric'",
+    "  )",
+    "} else if (identical(psTrimmingStrategy, 'by_equipoise')) {",
+    "  CohortMethod::createTrimByPsArgs(",
+    "    equipoiseBounds = c(equipoiseLowerBound, equipoiseUpperBound)",
+    "  )",
+    "} else {",
+    "  NULL",
+    "}",
+    "matchOnPsArgs <- if (identical(psAdjustmentStrategy, 'match_on_ps')) CohortMethod::createMatchOnPsArgs(",
     "  caliper = matchDefaults$caliper,",
     "  caliperScale = matchDefaults$caliperScale,",
     "  maxRatio = matchDefaults$maxRatio",
-    ")",
+    ") else NULL",
+    "stratifyByPsArgs <- if (identical(psAdjustmentStrategy, 'stratify_by_ps')) CohortMethod::createStratifyByPsArgs(",
+    "  numberOfStrata = stratifyDefaults$numberOfStrata,",
+    "  baseSelection = stratifyDefaults$baseSelection",
+    ") else NULL",
     "fitOutcomeModelArgs <- CohortMethod::createFitOutcomeModelArgs(",
     "  modelType = outcomeModelDefaults$modelType,",
-    "  stratified = outcomeModelDefaults$stratified",
+    "  stratified = outcomeModelDefaults$stratified %||% derivedOutcomeStratified,",
+    "  useCovariates = isTRUE(outcomeModelDefaults$useCovariates %||% FALSE),",
+    "  inversePtWeighting = isTRUE(outcomeModelDefaults$inversePtWeighting %||% FALSE),",
+    "  useRegularization = isTRUE(outcomeModelDefaults$useRegularization %||% TRUE)",
     ")",
     "",
     "cmAnalysisList <- list(",
@@ -2546,7 +4033,9 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     "    getDbCohortMethodDataArgs = getDbCohortMethodDataArgs,",
     "    createStudyPopulationArgs = createStudyPopulationArgs,",
     "    createPsArgs = createPsArgs,",
+    "    trimByPsArgs = trimByPsArgs,",
     "    matchOnPsArgs = matchOnPsArgs,",
+    "    stratifyByPsArgs = stratifyByPsArgs,",
     "    fitOutcomeModelArgs = fitOutcomeModelArgs",
     "  )",
     ")",
@@ -2568,6 +4057,10 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     "    defaults_path = file.path(output_dir, 'cm_analysis_defaults.json'),",
     "    concept_set_selections_path = file.path(output_dir, 'cm_concept_set_selections.json'),",
     "    negative_control_concept_set_id = negativeControlConceptSet$concept_set_id %||% NULL,",
+    "    study_start_date = getDbDefaults$studyStartDate %||% '',",
+    "    study_end_date = getDbDefaults$studyEndDate %||% '',",
+    "    ps_adjustment_strategy = psAdjustmentStrategy,",
+    "    ps_trimming_strategy = psTrimmingStrategy,",
     "    covariate_include_all_concepts = covariateConceptDefaults$include_all_concepts %||% covariateConceptSelections$include_all_concepts %||% TRUE,",
     "    covariate_include_concept_set_id = if (is.na(includedConceptSetId)) NULL else includedConceptSetId,",
     "    covariate_exclude_concept_set_id = if (is.na(excludedConceptSetId)) NULL else excludedConceptSetId,",

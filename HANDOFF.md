@@ -2,10 +2,9 @@
 
 ## 1. Completed Work
 
-- Added and exported `runStrategusCohortMethodsShell()` in:
+- `runStrategusCohortMethodsShell()` remains the main active shell entrypoint in:
   - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
-  - `R/OHDSIAssistant/NAMESPACE`
-- Implemented the cohort methods shell output/artifact structure, including:
+- The shell still writes the same core output/artifact structure, including:
   - `manual_intent.json`
   - `manual_inputs.json`
   - `cohort_id_map.json`
@@ -17,120 +16,244 @@
   - `acp_mcp_todo.json`
   - `improvements_status.json`
   - `cm_evaluation_todo.json`
-- Implemented generated script scaffolds:
+- The generated script scaffolds are still present:
   - `03_generate_cohorts.R`
   - `04_keeper_review.R`
   - `05_diagnostics.R`
   - `06_cm_spec.R`
   - `07_cm_run_analyses.R`
-- Added cohort/concept set validation and cache/resume behavior.
-- Changed outcome collection to repeated single-ID entry with `Add another outcome cohort id?`.
-- Added optional negative control concept set and covariate concept set placeholder capture.
-- Added analytic settings artifacts and schema wiring into `06_cm_spec.R`.
-- Moved cohort ID remap prompt to run before analytic settings configuration.
-- Changed analytic settings flow so it is always collected.
-- Added analytic settings mode selection:
-  - `1. Step-by-step`
-  - `2. Free-text`
-- Added explanatory prompt text for the two analytic settings modes.
-- Implemented current `step_by_step` flow as section-order guidance only:
-  - `study_population`
-  - `time_at_risk`
-  - `propensity_score_adjustment`
-  - `outcome_model`
-  - detailed prompts inside those sections are still TODO
-- Implemented current `free_text` flow so description input is resolved in this order:
-  - `analyticSettingsDescription`
-  - `analyticSettingsDescriptionPath`
-  - interactive typed input
-- Added dummy recommendation artifact generation for free-text mode:
-  - `outputs/cm_analytic_settings_recommendation.json`
-- Added placeholder ACP/stub call stage after study description is available in free-text mode:
-  - flow name: `cohort_methods_specifications_recommendation`
-  - response artifact: `outputs/cm_acp_specifications_recommendation.json`
-- Added graceful stub fallback when ACP is unavailable, ACP helpers are not loaded, or the flow is unimplemented.
-- Updated docs:
-  - `docs/STRATEGUS_COHORT_METHODS_SHELL.md`
-  - `R/OHDSIAssistant/README.md`
+- Cohort/concept-set validation, cache/resume behavior, repeated outcome ID entry, and placeholder concept-set capture remain in place.
+- Analytic settings are still always collected, with mode selection:
+  - `step_by_step`
+  - `free_text`
+- `free_text` mode behavior is unchanged in broad shape:
+  - description resolution order:
+    - `analyticSettingsDescription`
+    - `analyticSettingsDescriptionPath`
+    - cached description/path
+    - interactive typed input
+  - dummy recommendation artifact:
+    - `outputs/cm_analytic_settings_recommendation.json`
+  - placeholder ACP/stub artifact:
+    - `outputs/cm_acp_specifications_recommendation.json`
+- The major new work completed in this session is real `step_by_step` section-level prompting.
+  - Section order is now actually implemented:
+    - `study_population`
+    - `time_at_risk`
+    - `propensity_score_adjustment`
+    - `outcome_model`
+  - The analytic settings profile name is now asked after all four sections are complete.
+  - `study_population` now asks the core settings first:
+    - `studyStartDate`
+    - `studyEndDate`
+  - `time_at_risk` now asks the core settings first:
+    - `startAnchor` + `riskWindowStart`
+    - `endAnchor` + `riskWindowEnd`
+  - `outcome_model` now asks the core setting first:
+    - `modelType`
+  - `propensity_score_adjustment` now asks the core settings first:
+    - trimming strategy:
+      - `none`
+      - `by_percent`
+      - `by_equipoise`
+      - this is exposed only in the PS remaining-defaults customization path, not as a core question
+    - strategy:
+      - `match_on_ps`
+      - `stratify_by_ps`
+      - `none`
+    - if `match_on_ps`, ask only:
+      - `maxRatio`
+    - if `stratify_by_ps`, ask only:
+      - `numberOfStrata`
+    - if `none`, no strategy-specific follow-up is asked
+  - Every section now follows the same pattern:
+    - ask the section's core settings first
+    - show `keep defaults?` for the remaining exposed settings
+    - if the user answers `No`, ask those remaining settings one by one
+  - Default summaries and final summaries now use short labels only.
+  - Detailed ATLAS-style descriptions are shown only in the one-by-one customization path.
+  - A final resolved analytic-settings summary is printed after all sections complete.
+- `step_by_step` now explicitly resets non-core section fields from system defaults instead of accidentally preserving cached overrides.
+- The analytic-settings schema was expanded and wired through:
+  - `get_db_cohort_method_data.studyStartDate`
+  - `get_db_cohort_method_data.studyEndDate`
+  - `ps_adjustment.strategy`
+  - `ps_adjustment.trimmingStrategy`
+  - `ps_adjustment.trimmingPercent`
+  - `ps_adjustment.equipoiseLowerBound`
+  - `ps_adjustment.equipoiseUpperBound`
+  - `create_study_population.maxCohortSize`
+  - `create_study_population.minDaysAtRisk`
+  - `create_ps.maxCohortSizeForFitting`
+  - `create_ps.errorOnHighCorrelation`
+  - `create_ps.useRegularization`
+  - `match_on_ps.caliper`
+  - `match_on_ps.caliperScale`
+  - `match_on_ps.maxRatio`
+  - `stratify_by_ps.numberOfStrata`
+  - `stratify_by_ps.baseSelection`
+- `fit_outcome_model.useCovariates`
+- `fit_outcome_model.inversePtWeighting`
+- `fit_outcome_model.useRegularization`
+- `match_on_ps.maxRatio` validation now allows `0`.
+- `match_on_ps.maxRatio` default is now `1`.
+- `cm_analysis_defaults.json` now includes:
+  - `ps_adjustment`
+  - `stratify_by_ps`
+  - study start/end dates inside `get_db_cohort_method_data`
+  - expanded PS defaults and trimming metadata
+  - expanded outcome-model defaults
+- `06_cm_spec.R` generation now uses the expanded defaults:
+  - passes `studyStartDate` / `studyEndDate` into `createGetDbCohortMethodDataArgs()`
+  - chooses `createPsArgs = NULL` when PS strategy is `none`
+  - chooses `trimByPsArgs` from trimming settings:
+    - `trimFraction` for `by_percent`
+    - `equipoiseBounds` for `by_equipoise`
+  - chooses `matchOnPsArgs` only for `match_on_ps`
+  - chooses `stratifyByPsArgs` only for `stratify_by_ps`
+  - adds PS `errorOnHighCorrelation`
+  - derives PS regularization into the `prior` object used by `createCreatePsArgs()`
+  - carries `useCovariates`, `inversePtWeighting`, and `useRegularization` into `createFitOutcomeModelArgs()`
+  - derives outcome-model `stratified` defaults from PS strategy + `maxRatio`
+- `customized_sections` is now recomputed from actual diffs versus system defaults instead of trusting cached section names.
 
-## 2. In-Progress Work
+## 2. Tests And Verification Completed
 
-- The cohort methods shell now calls a placeholder ACP/stub flow for free-text analytic settings, but the ACP-side flow is not implemented yet.
-- The overall ACP integration is only partially aligned with `strategus_incidence_shell.R`.
-  - The current implementation uses a local helper in the cohort methods shell.
-  - It does not yet fully reuse the incidence shell's `acp_connect()` + `acp_try()` pattern and checkpoint/retry behavior.
-- The `step_by_step` analytic settings path currently establishes the intended flow only; it does not yet collect detailed values section-by-section.
+- `Rscript -e "source('R/OHDSIAssistant/R/strategus_cohort_methods_shell.R')"` passes.
+- Non-interactive smoke validation ran successfully with:
+  - `targetCohortId = 6`
+  - `comparatorCohortId = 7`
+  - `outcomeCohortIds = c(8, 9)`
+  - `interactive = FALSE`
+  - `allowCache = FALSE`
+  - `promptOnCache = FALSE`
+  - `remapCohortIds = FALSE`
+- Verified generated outputs under `/tmp/cm_shell_step_by_step_check/` showed the new analytic-settings fields in:
+  - `outputs/cm_analysis_defaults.json`
+  - `scripts/06_cm_spec.R`
+- Added lightweight R package-level tests:
+  - `R/OHDSIAssistant/tests/testthat.R`
+  - `R/OHDSIAssistant/tests/testthat/test-step-by-step-analytic-settings.R`
+- Added a lightweight analytic-settings-only helper for fast manual verification:
+  - `R/OHDSIAssistant/R/strategus_cohort_methods_analytic_settings.R`
+- Added `testthat` package metadata to:
+  - `R/OHDSIAssistant/DESCRIPTION`
+- Added `.gitignore` exceptions so these R test files are not swallowed by the repo-wide `test*.R` ignore rule.
+- Local `testthat` execution passes by sourcing:
+  - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
+  - `R/OHDSIAssistant/tests/testthat/test-step-by-step-analytic-settings.R`
 
-## 3. Remaining TODO
+## 3. In-Progress / Important Current State
 
+- `free_text` analytic settings still use a placeholder ACP/stub flow; ACP-side implementation is still missing.
+- The overall ACP integration is still only partially aligned with `strategus_incidence_shell.R`.
+  - cohort methods still uses a local fallback helper
+  - it does not yet fully reuse the incidence shell's `acp_connect()` + `acp_try()` + checkpoint/retry pattern
+- `step_by_step` is now functional, but it is still intentionally selective:
+  - it does not expose every possible CohortMethod parameter
+  - it uses a core-setting-first UX with defaults for the rest
+- The current user-facing prompt flow is now intentionally ATLAS-shaped but not ATLAS-complete:
+  - it matches the requested section grouping and prompt order
+  - it still exposes only the agreed subset of settings
+- The shell currently persists expanded analytic settings in `cm_analysis_defaults.json`, but the next major product step is still to formalize analytic settings as the real JSON target/schema rather than continuing to treat the shell prompts as the main artifact.
+
+## 4. Remaining TODO
+
+- Highest-priority next step:
+  - make analytic settings the primary JSON artifact / target representation
+  - clarify and finalize the JSON shape that the shell should produce and downstream steps should consume
+  - then map the current step-by-step and free-text flows cleanly into that JSON contract
 - Implement the real ACP flow:
   - `/flows/cohort_methods_specifications_recommendation`
-- Add ACP integration for comparator setting as well.
-  - This should follow the same broad direction as the Strategus incidence shell's ACP-connected orchestration.
-  - The exact call shape, timing, and flow contract are still to be decided.
-- Decide whether cohort methods ACP behavior should fully match incidence shell behavior or intentionally remain more fault-tolerant.
-  - Incidence shell currently fails hard on ACP problems in non-interactive mode.
-  - Cohort methods currently falls back to a stub placeholder.
+- Decide whether cohort methods ACP behavior should fully match incidence-shell behavior or intentionally remain more fault-tolerant.
 - Refactor cohort methods ACP handling to match incidence shell more closely if desired:
-  - explicit `acp_connect(acpUrl)` phase
+  - explicit `acp_connect(acpUrl)`
   - shared `acp_try()`-style wrapper
   - consistent retry/checkpoint behavior
-- Implement real section-level prompts for `step_by_step` analytic settings:
-  - study population
-  - time-at-risk
-  - propensity score adjustment
-  - outcome model
-- Decide whether covariate settings should rejoin the required step-by-step analytic settings flow or remain separate as concept set placeholder handling.
+- Add ACP integration for comparator setting if that is still desired.
 - Replace dummy recommendation generation with real recommendation parsing/mapping from ACP output.
-- Decide and implement the final response schema expected from ACP for cohort method specifications.
-- Add lightweight regression coverage for:
-  - step-by-step mode
-  - free-text mode with `analyticSettingsDescription`
-  - free-text mode with `analyticSettingsDescriptionPath`
+- Decide and implement the final ACP response schema for cohort method specifications.
+- Convert the current shell-collected analytic settings into the final JSON structure that should drive downstream cohort-method execution.
+- Decide whether the generated `06_cm_spec.R` should continue reading `cm_analysis_defaults.json` directly or instead consume a more explicit analytic-settings JSON contract.
+- Decide whether covariate settings should stay outside the required step-by-step section flow or be folded back in later.
+- Add broader regression coverage for:
+  - full shell `step_by_step` runs
+  - `free_text` mode with `analyticSettingsDescription`
+  - `free_text` mode with `analyticSettingsDescriptionPath`
   - ACP stub fallback
   - cache/resume behavior
-- Clean up and possibly share duplicated helper logic between:
-  - `strategus_incidence_shell.R`
-  - `strategus_cohort_methods_shell.R`
-
-## 4. Important Decisions And Why
-
-- Analytic settings are now mandatory instead of optional.
-  - Reason: this matches the updated shell flow requirement and makes analytic configuration an explicit part of every run.
-- Analytic settings mode is selected first as `step_by_step` or `free_text`.
-  - Reason: this keeps the UX clear and supports two future implementation paths.
-- `step_by_step` currently preserves defaults and only walks the user through the intended sections.
-  - Reason: the user asked to establish the flow now and leave detailed section-level configuration as TODO.
-- `free_text` description resolution prefers function arguments over interactive input.
-  - Reason: the user explicitly clarified that input method selection should not be another user-facing prompt.
-- A separate ACP response artifact and a separate recommendation artifact are both written.
-  - Reason: this keeps provenance clear:
-    - ACP/stub response in `cm_acp_specifications_recommendation.json`
-    - user-facing recommendation payload in `cm_analytic_settings_recommendation.json`
-- Cohort methods ACP integration currently degrades to a stub instead of stopping.
-  - Reason: ACP is not implemented yet, but the shell should still be runnable and produce traceable artifacts.
-- The placeholder ACP flow name is already fixed as `cohort_methods_specifications_recommendation`.
-  - Reason: this sets the contract target for the future ACP implementation.
-
-## 5. Context Needed For The Next Session
-
-- Main file under active development:
-  - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
-- Related reference implementation:
+- Clean up or share helper logic between:
   - `R/OHDSIAssistant/R/strategus_incidence_shell.R`
-- Current free-text ACP/stub artifacts created during validation:
-  - `tmp_validation/cm_acp_stub_check/outputs/cm_acp_specifications_recommendation.json`
-  - `tmp_validation/cm_acp_stub_check/outputs/cm_analytic_settings_recommendation.json`
-  - `tmp_validation/cm_acp_stub_check/outputs/manual_inputs.json`
-  - `tmp_validation/cm_acp_stub_check/outputs/study_agent_state.json`
-- Important current behavior:
-  - If ACP client helpers are not loaded, cohort methods does not fail.
-  - It records a stub placeholder ACP response and continues.
-- Important gap:
-  - The user asked whether the ACP calling structure was similar to cohort incidence.
-  - The answer is: partially yes in intent/artifacts, but not yet structurally identical.
-  - If the next step is “make it truly incidence-like,” the work should focus on adopting the same connection/retry/checkpoint pattern.
-- Current git/worktree note:
-  - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R` is still untracked in the shown status.
-  - `docs/STRATEGUS_COHORT_METHODS_SHELL.md` is also untracked in the shown status.
-  - `R/OHDSIAssistant/README.md` and `R/OHDSIAssistant/NAMESPACE` are modified.
+  - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
+
+## 5. Important Decisions And Why
+
+- Analytic settings remain mandatory.
+  - Reason: this keeps cohort-method configuration explicit for every run.
+- The shell still uses two modes:
+  - `step_by_step`
+  - `free_text`
+  - Reason: this preserves the current UX split while ACP recommendations are still under development.
+- `step_by_step` now follows a constrained wizard model instead of “ask everything.”
+  - Reason: the user wanted one category at a time, core settings first, and defaults for the rest.
+- For PS settings:
+  - `match_on_ps` now asks only `maxRatio` as the core question
+  - `stratify_by_ps` now asks only `numberOfStrata` as the core question
+  - trimming is not asked as a core PS question; it is exposed only when the user declines PS defaults
+  - the remaining PS settings are shown in a `keep defaults?` summary and can now be customized one by one if the user answers `No`
+  - Reason: this matches the user's final requested PS UX.
+- `maxRatio` now defaults to `1`.
+  - Reason: explicit user request to align defaults with OHDSI / CohortMethod behavior.
+- `maxRatio = 0` is now valid.
+  - Reason: explicit user request, aligned with the intended “no maximum” semantics.
+- Profile name is now collected last in `step_by_step`.
+  - Reason: explicit user requirement during this session.
+- Outcome-model `useRegularization` is now exposed and persisted.
+  - Reason: explicit user requirement during this session.
+- PS common defaults now include:
+  - `maxCohortSizeForFitting`
+  - `errorOnHighCorrelation`
+  - `useRegularization`
+  - Reason: explicit user requirement during this session.
+- PS trimming now supports:
+  - `none`
+  - `by_percent`
+  - `by_equipoise`
+  - with equipoise defaults `0.25 / 0.75`
+  - Reason: explicit user requirement during this session, aligned to OHDSI references.
+- `customized_sections` is computed from actual values versus defaults.
+  - Reason: avoids stale cache-driven section labels and better reflects the real effective configuration.
+
+## 6. Files Changed In This Session
+
+- `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
+- `R/OHDSIAssistant/R/strategus_cohort_methods_analytic_settings.R`
+- `R/OHDSIAssistant/DESCRIPTION`
+- `R/OHDSIAssistant/tests/testthat.R`
+- `R/OHDSIAssistant/tests/testthat/test-step-by-step-analytic-settings.R`
+- `docs/STRATEGUS_COHORT_METHODS_SHELL.md`
+- `.gitignore`
+
+## 7. Current Git / Worktree Note
+
+- As of the end of this session, relevant modified files include:
+  - `.gitignore`
+  - `R/OHDSIAssistant/DESCRIPTION`
+  - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
+  - `docs/STRATEGUS_COHORT_METHODS_SHELL.md`
+  - `R/OHDSIAssistant/tests/` (new)
+- There is also an unrelated untracked note in the worktree:
+  - `Next Step.md`
+- There is still an unrelated user-side modification to:
+  - `.gitignore`
+  - specifically the extra `.DS_Store` line appears in the current diff and was not part of the cohort-method logic itself
+
+## 8. Best Next Step
+
+- If continuing product behavior:
+  - first finalize analytic settings as JSON and make that the primary downstream contract
+  - then implement the real ACP recommendation flow and map it into that JSON shape
+- If continuing hardening:
+  - add full-shell regression coverage for `step_by_step` and cache/resume paths
+- If continuing UX:
+  - decide whether to keep the current selective wizard permanently or expose more non-core settings later
