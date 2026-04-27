@@ -271,9 +271,6 @@
   if (is.null(value) || length(value) == 0 || is.na(value)) return("")
   value <- trimws(as.character(value[[1]]))
   if (!nzchar(value)) return("")
-  if (grepl("^[0-9]{8}$", value)) {
-    return(sprintf("%s-%s-%s", substr(value, 1L, 4L), substr(value, 5L, 6L), substr(value, 7L, 8L)))
-  }
   value
 }
 
@@ -841,11 +838,184 @@
   if (is.null(value) || length(value) == 0 || is.na(value)) return("")
   value <- trimws(as.character(value[[1]]))
   if (!nzchar(value)) return("")
-  if (grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", value)) {
-    return(gsub("-", "", value, fixed = TRUE))
-  }
   if (grepl("^[0-9]{8}$", value)) return(value)
-  stop(sprintf("%s must be blank or formatted as YYYY-MM-DD.", label))
+  stop(sprintf("%s must be blank or formatted as YYYYMMDD.", label))
+}
+
+.studyAgentDefaultCmAnalysisTemplate <- function() {
+  list(
+    description = "",
+    getDbCohortMethodDataArgs = list(
+      studyStartDate = "",
+      studyEndDate = "",
+      firstExposureOnly = FALSE,
+      removeDuplicateSubjects = "keep all",
+      restrictToCommonPeriod = FALSE,
+      washoutPeriod = 365L,
+      maxCohortSize = 0L
+    ),
+    createStudyPopArgs = list(
+      removeSubjectsWithPriorOutcome = TRUE,
+      priorOutcomeLookback = 99999L,
+      minDaysAtRisk = 1L,
+      riskWindowStart = 1L,
+      startAnchor = "cohort start",
+      riskWindowEnd = 0L,
+      endAnchor = "cohort end",
+      censorAtNewRiskWindow = FALSE
+    ),
+    trimByPsArgs = list(
+      trimFraction = 0.05,
+      equipoiseBounds = NA
+    ),
+    matchOnPsArgs = list(
+      maxRatio = 1L,
+      caliper = 0.2,
+      caliperScale = "standardized logit"
+    ),
+    stratifyByPsArgs = NA,
+    createPsArgs = list(
+      maxCohortSizeForFitting = 250000L,
+      errorOnHighCorrelation = TRUE,
+      prior = list(
+        priorType = "laplace",
+        useCrossValidation = TRUE
+      ),
+      control = list(
+        tolerance = 2e-7,
+        cvType = "auto",
+        fold = 10L,
+        cvRepetitions = 10L,
+        noiseLevel = "silent",
+        resetCoefficients = TRUE,
+        startingVariance = 0.01
+      )
+    ),
+    fitOutcomeModelArgs = list(
+      modelType = "cox",
+      stratified = FALSE,
+      useCovariates = FALSE,
+      inversePtWeighting = FALSE,
+      prior = list(
+        priorType = "laplace",
+        useCrossValidation = TRUE
+      ),
+      control = list(
+        tolerance = 2e-7,
+        cvType = "auto",
+        fold = 10L,
+        cvRepetitions = 10L,
+        noiseLevel = "quiet",
+        resetCoefficients = TRUE,
+        startingVariance = 0.01
+      )
+    )
+  )
+}
+
+.studyAgentLoadCmAnalysisTemplate <- function(template_path = NULL) {
+  template <- .studyAgentDefaultCmAnalysisTemplate()
+  if (!is.null(template_path) && length(template_path) > 0 && !is.na(template_path) && nzchar(template_path) && file.exists(template_path)) {
+    loaded <- jsonlite::fromJSON(template_path, simplifyVector = FALSE)
+    template <- .studyAgentDeepMerge(template, loaded)
+  }
+  template
+}
+
+.studyAgentBuildCmAnalysisJson <- function(settings, template = NULL) {
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+  template <- template %||% .studyAgentDefaultCmAnalysisTemplate()
+
+  ps_strategy <- settings$ps_adjustment$strategy %||% "match_on_ps"
+  trimming_strategy <- settings$ps_adjustment$trimmingStrategy %||% "none"
+  ps_regularized <- isTRUE(settings$create_ps$useRegularization)
+  outcome_regularized <- isTRUE(settings$fit_outcome_model$useRegularization)
+
+  ps_prior <- if (ps_regularized) template$createPsArgs$prior else NA
+  ps_control <- if (ps_regularized) template$createPsArgs$control else NA
+  outcome_prior <- if (outcome_regularized) template$fitOutcomeModelArgs$prior else NA
+  outcome_control <- if (outcome_regularized) template$fitOutcomeModelArgs$control else NA
+
+  trim_args <- NA
+  if (identical(trimming_strategy, "by_percent")) {
+    trim_args <- list(
+      trimFraction = as.numeric(settings$ps_adjustment$trimmingPercent) / 100,
+      equipoiseBounds = NA
+    )
+  } else if (identical(trimming_strategy, "by_equipoise")) {
+    trim_args <- list(
+      trimFraction = NA_real_,
+      equipoiseBounds = c(
+        as.numeric(settings$ps_adjustment$equipoiseLowerBound),
+        as.numeric(settings$ps_adjustment$equipoiseUpperBound)
+      )
+    )
+  }
+
+  match_args <- if (identical(ps_strategy, "match_on_ps")) {
+    list(
+      maxRatio = as.integer(settings$match_on_ps$maxRatio),
+      caliper = as.numeric(settings$match_on_ps$caliper),
+      caliperScale = as.character(settings$match_on_ps$caliperScale)
+    )
+  } else {
+    NA
+  }
+
+  stratify_args <- if (identical(ps_strategy, "stratify_by_ps")) {
+    list(
+      numberOfStrata = as.integer(settings$stratify_by_ps$numberOfStrata),
+      baseSelection = as.character(settings$stratify_by_ps$baseSelection)
+    )
+  } else {
+    NA
+  }
+
+  create_ps_args <- if (identical(ps_strategy, "none") && identical(trimming_strategy, "none")) {
+    NA
+  } else {
+    list(
+      maxCohortSizeForFitting = as.integer(settings$create_ps$maxCohortSizeForFitting),
+      errorOnHighCorrelation = isTRUE(settings$create_ps$errorOnHighCorrelation),
+      prior = ps_prior,
+      control = ps_control
+    )
+  }
+
+  list(
+    description = as.character(settings$profile_name),
+    getDbCohortMethodDataArgs = list(
+      studyStartDate = as.character(settings$get_db_cohort_method_data$studyStartDate %||% ""),
+      studyEndDate = as.character(settings$get_db_cohort_method_data$studyEndDate %||% ""),
+      firstExposureOnly = isTRUE(settings$get_db_cohort_method_data$firstExposureOnly),
+      removeDuplicateSubjects = as.character(settings$get_db_cohort_method_data$removeDuplicateSubjects),
+      restrictToCommonPeriod = isTRUE(settings$get_db_cohort_method_data$restrictToCommonPeriod),
+      washoutPeriod = as.integer(settings$get_db_cohort_method_data$washoutPeriod),
+      maxCohortSize = as.integer(settings$create_study_population$maxCohortSize)
+    ),
+    createStudyPopArgs = list(
+      removeSubjectsWithPriorOutcome = isTRUE(settings$create_study_population$removeSubjectsWithPriorOutcome),
+      priorOutcomeLookback = as.integer(settings$create_study_population$priorOutcomeLookback),
+      minDaysAtRisk = as.integer(settings$create_study_population$minDaysAtRisk),
+      riskWindowStart = as.integer(settings$create_study_population$riskWindowStart),
+      startAnchor = as.character(settings$create_study_population$startAnchor),
+      riskWindowEnd = as.integer(settings$create_study_population$riskWindowEnd),
+      endAnchor = as.character(settings$create_study_population$endAnchor),
+      censorAtNewRiskWindow = isTRUE(settings$create_study_population$censorAtNewRiskWindow)
+    ),
+    trimByPsArgs = trim_args,
+    matchOnPsArgs = match_args,
+    stratifyByPsArgs = stratify_args,
+    createPsArgs = create_ps_args,
+    fitOutcomeModelArgs = list(
+      modelType = as.character(settings$fit_outcome_model$modelType),
+      stratified = isTRUE(settings$fit_outcome_model$stratified),
+      useCovariates = isTRUE(settings$fit_outcome_model$useCovariates),
+      inversePtWeighting = isTRUE(settings$fit_outcome_model$inversePtWeighting),
+      prior = outcome_prior,
+      control = outcome_control
+    )
+  )
 }
 
 .studyAgentCollectStepByStepAnalyticSettings <- function(default_settings,
@@ -941,12 +1111,12 @@
 
   show_section("Study Population")
   study_start <- ask_text(
-    "Study start date (YYYY-MM-DD, leave blank for no restriction)",
+    "Study start date (YYYYMMDD, leave blank for no restriction)",
     default = .studyAgentFormatDateForPrompt(.studyAgentGetNestedValue(working, "get_db_cohort_method_data.studyStartDate")),
     allow_blank = TRUE
   )
   study_end <- ask_text(
-    "Study end date (YYYY-MM-DD, leave blank for no restriction)",
+    "Study end date (YYYYMMDD, leave blank for no restriction)",
     default = .studyAgentFormatDateForPrompt(.studyAgentGetNestedValue(working, "get_db_cohort_method_data.studyEndDate")),
     allow_blank = TRUE
   )
@@ -2521,6 +2691,15 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   cm_evaluation_todo_path <- file.path(output_dir, "cm_evaluation_todo.json")
   acp_mcp_todo_path <- file.path(output_dir, "acp_mcp_todo.json")
   cm_defaults_path <- file.path(output_dir, "cm_analysis_defaults.json")
+  cm_analysis_json_path <- file.path(analysis_settings_dir, "cmAnalysis.json")
+  cm_analysis_template_path <- system.file("templates", "cmAnalysis_template.json", package = "OHDSIAssistant")
+  if (!nzchar(cm_analysis_template_path)) {
+    cm_analysis_template_path <- resolve_path("R/OHDSIAssistant/inst/templates/cmAnalysis_template.json", study_base_dir)
+    cm_analysis_template_path <- normalizePath(cm_analysis_template_path, winslash = "/", mustWork = FALSE)
+  }
+  if (!file.exists(cm_analysis_template_path)) {
+    cm_analysis_template_path <- NA_character_
+  }
   cm_acp_specifications_recommendation_path <- file.path(output_dir, "cm_acp_specifications_recommendation.json")
   cm_analytic_settings_recommendation_path <- file.path(output_dir, "cm_analytic_settings_recommendation.json")
   cm_concept_set_selections_path <- file.path(output_dir, "cm_concept_set_selections.json")
@@ -3319,6 +3498,8 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     analytic_settings_recommendation_status = analytic_settings_recommendation_status,
     analytic_settings_confirmed = isTRUE(analytic_settings_confirmed),
     analytic_settings_section_flow = as.list(analytic_settings_section_flow),
+    cm_analysis_json_path = cm_analysis_json_path,
+    cm_analysis_template_path = json_string_or_null(cm_analysis_template_path),
     remap_cohort_ids = use_mapping,
     cohort_id_base = cohortIdBase
   )
@@ -3518,7 +3699,15 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   cm_defaults$covariate_concept_sets$note <- "Placeholder only. Dummy concept set IDs are captured for future concept set materialization."
   cm_defaults$get_db_cohort_method_data$removeDuplicateSubjects <- as.character(cm_defaults$get_db_cohort_method_data$removeDuplicateSubjects)
   cm_defaults$create_study_population$removeDuplicateSubjects <- as.character(cm_defaults$create_study_population$removeDuplicateSubjects)
+  cm_defaults$cm_analysis_json_path <- cm_analysis_json_path
   write_json(cm_defaults, cm_defaults_path)
+
+  cm_analysis_template <- .studyAgentLoadCmAnalysisTemplate(cm_analysis_template_path)
+  cm_analysis_json <- .studyAgentBuildCmAnalysisJson(
+    settings = effective_analytic_settings,
+    template = cm_analysis_template
+  )
+  write_json(cm_analysis_json, cm_analysis_json_path)
 
   cohort_rows <- list(
     data.frame(
@@ -3587,6 +3776,8 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     cm_evaluation_todo_path = cm_evaluation_todo_path,
     acp_mcp_todo_path = acp_mcp_todo_path,
     cm_defaults_path = cm_defaults_path,
+    cm_analysis_json_path = cm_analysis_json_path,
+    cm_analysis_template_path = json_string_or_null(cm_analysis_template_path),
     cm_acp_specifications_recommendation_path = json_string_or_null(analytic_settings_acp_response_path),
     cm_analytic_settings_recommendation_path = json_string_or_null(analytic_settings_recommendation_path),
     cm_concept_set_selections_path = cm_concept_set_selections_path,
@@ -4055,6 +4246,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     "    comparator_id = comparator_id,",
     "    outcome_ids = as.list(outcome_ids),",
     "    defaults_path = file.path(output_dir, 'cm_analysis_defaults.json'),",
+    "    cm_analysis_json_path = file.path(analysis_settings_dir, 'cmAnalysis.json'),",
     "    concept_set_selections_path = file.path(output_dir, 'cm_concept_set_selections.json'),",
     "    negative_control_concept_set_id = negativeControlConceptSet$concept_set_id %||% NULL,",
     "    study_start_date = getDbDefaults$studyStartDate %||% '',",
@@ -4186,6 +4378,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     manual_inputs = manual_inputs_path,
     cm_comparisons = cm_comparisons_path,
     cm_concept_set_selections = cm_concept_set_selections_path,
+    cm_analysis_json = cm_analysis_json_path,
     cohort_csv = cohort_csv,
     state = state_path
   ))

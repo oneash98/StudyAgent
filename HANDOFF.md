@@ -16,6 +16,20 @@
   - `acp_mcp_todo.json`
   - `improvements_status.json`
   - `cm_evaluation_todo.json`
+- The shell now also writes a template-shaped CohortMethod analysis settings JSON:
+  - `analysis-settings/cmAnalysis.json`
+  - The path is echoed in `outputs/manual_inputs.json`, `outputs/study_agent_state.json`,
+    and `outputs/cm_analysis_defaults.json`.
+  - This is separate from `outputs/` state/cache artifacts; it is the analysis-settings
+    contract artifact intended for CohortMethod-oriented downstream use.
+- The executable JSON template and explanation live under:
+  - `R/OHDSIAssistant/inst/templates/cmAnalysis_template.json`
+  - `R/OHDSIAssistant/inst/templates/CM_ANALYSIS_TEMPLATE.md`
+- `CM_ANALYSIS_TEMPLATE.md` explicitly documents that this structure is a temporary
+  StudyAgent-specific contract for the Strategus CohortMethod shell, not a public
+  OHDSI / Strategus / CohortMethod schema.
+- Study start/end date prompts now ask users for `YYYYMMDD` directly, and validation rejects
+  `YYYY-MM-DD` instead of silently converting it.
 - The generated script scaffolds are still present:
   - `03_generate_cohorts.R`
   - `04_keeper_review.R`
@@ -116,6 +130,13 @@
   - carries `useCovariates`, `inversePtWeighting`, and `useRegularization` into `createFitOutcomeModelArgs()`
   - derives outcome-model `stratified` defaults from PS strategy + `maxRatio`
 - `customized_sections` is now recomputed from actual diffs versus system defaults instead of trusting cached section names.
+- `effective_analytic_settings` is converted into `cmAnalysis.json` using a pure helper after
+  final normalization. Conditional template fields are handled as follows:
+  - `trimByPsArgs = null` when trimming is `none`
+  - `matchOnPsArgs = null` unless strategy is `match_on_ps`
+  - `stratifyByPsArgs = null` unless strategy is `stratify_by_ps`
+  - `createPsArgs = null` only when both PS adjustment and PS trimming are `none`
+  - regularization controls are expanded into `prior` / `control`, or `null` when disabled
 
 ## 2. Tests And Verification Completed
 
@@ -142,6 +163,14 @@
 - Local `testthat` execution passes by sourcing:
   - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
   - `R/OHDSIAssistant/tests/testthat/test-step-by-step-analytic-settings.R`
+- Current session verification also completed:
+  - `python -m json.tool R/OHDSIAssistant/inst/templates/cmAnalysis_template.json` passes.
+  - `Rscript` source check passes using the installed R path:
+    `C:/Program Files/R/R-4.5.3/bin/Rscript.exe`.
+  - A non-interactive shell smoke run generated and parsed
+    `analysis-settings/cmAnalysis.json`.
+  - Helper checks confirmed the `null` rules for no-PS/no-trim and stratify/equipoise cases.
+  - Date validation now accepts `YYYYMMDD` and rejects `YYYY-MM-DD`.
 
 ## 3. In-Progress / Important Current State
 
@@ -155,14 +184,16 @@
 - The current user-facing prompt flow is now intentionally ATLAS-shaped but not ATLAS-complete:
   - it matches the requested section grouping and prompt order
   - it still exposes only the agreed subset of settings
-- The shell currently persists expanded analytic settings in `cm_analysis_defaults.json`, but the next major product step is still to formalize analytic settings as the real JSON target/schema rather than continuing to treat the shell prompts as the main artifact.
+- The shell now persists a template-shaped `analysis-settings/cmAnalysis.json` artifact, while
+  `outputs/cm_analysis_defaults.json` remains in place for current generated-script compatibility.
+- `06_cm_spec.R` still reads `outputs/cm_analysis_defaults.json`; it has not yet been switched
+  to consume `analysis-settings/cmAnalysis.json` directly.
 
 ## 4. Remaining TODO
 
-- Highest-priority next step:
-  - make analytic settings the primary JSON artifact / target representation
-  - clarify and finalize the JSON shape that the shell should produce and downstream steps should consume
-  - then map the current step-by-step and free-text flows cleanly into that JSON contract
+- Highest-priority next steps:
+  1. Finish comparator settings.
+  2. Complete ACP/MCP implementation for analysis settings recommendation.
 - Implement the real ACP flow:
   - `/flows/cohort_methods_specifications_recommendation`
 - Decide whether cohort methods ACP behavior should fully match incidence-shell behavior or intentionally remain more fault-tolerant.
@@ -173,7 +204,6 @@
 - Add ACP integration for comparator setting if that is still desired.
 - Replace dummy recommendation generation with real recommendation parsing/mapping from ACP output.
 - Decide and implement the final ACP response schema for cohort method specifications.
-- Convert the current shell-collected analytic settings into the final JSON structure that should drive downstream cohort-method execution.
 - Decide whether the generated `06_cm_spec.R` should continue reading `cm_analysis_defaults.json` directly or instead consume a more explicit analytic-settings JSON contract.
 - Decide whether covariate settings should stay outside the required step-by-step section flow or be folded back in later.
 - Add broader regression coverage for:
@@ -227,32 +257,20 @@
 ## 6. Files Changed In This Session
 
 - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
-- `R/OHDSIAssistant/R/strategus_cohort_methods_analytic_settings.R`
-- `R/OHDSIAssistant/DESCRIPTION`
-- `R/OHDSIAssistant/tests/testthat.R`
-- `R/OHDSIAssistant/tests/testthat/test-step-by-step-analytic-settings.R`
-- `docs/STRATEGUS_COHORT_METHODS_SHELL.md`
-- `.gitignore`
+- `R/OHDSIAssistant/inst/templates/cmAnalysis_template.json`
+- `R/OHDSIAssistant/inst/templates/CM_ANALYSIS_TEMPLATE.md`
 
 ## 7. Current Git / Worktree Note
 
-- As of the end of this session, relevant modified files include:
-  - `.gitignore`
-  - `R/OHDSIAssistant/DESCRIPTION`
+- As of this update, relevant modified/untracked files include:
   - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
-  - `docs/STRATEGUS_COHORT_METHODS_SHELL.md`
-  - `R/OHDSIAssistant/tests/` (new)
-- There is also an unrelated untracked note in the worktree:
-  - `Next Step.md`
-- There is still an unrelated user-side modification to:
-  - `.gitignore`
-  - specifically the extra `.DS_Store` line appears in the current diff and was not part of the cohort-method logic itself
+  - `R/OHDSIAssistant/inst/templates/` (new)
 
 ## 8. Best Next Step
 
 - If continuing product behavior:
-  - first finalize analytic settings as JSON and make that the primary downstream contract
-  - then implement the real ACP recommendation flow and map it into that JSON shape
+  - first finish comparator settings
+  - then complete ACP/MCP support for analysis settings recommendation
 - If continuing hardening:
   - add full-shell regression coverage for `step_by_step` and cache/resume paths
 - If continuing UX:
