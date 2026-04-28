@@ -344,6 +344,29 @@ Invoke-RestMethod `
   -TimeoutSec 180
 ```
 
+Cohort methods intent split (target/comparator/outcome statements):
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/flows/cohort_methods_intent_split \
+  -H 'Content-Type: application/json' \
+  -d '{"study_intent":"Compare metformin versus sulfonylurea on gastrointestinal bleeding outcomes using a cohort method design"}'
+```
+
+PowerShell (Windows) equivalent:
+
+```powershell
+$body = @{
+  study_intent = "Compare metformin versus sulfonylurea on gastrointestinal bleeding outcomes using a cohort method design"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8765/flows/cohort_methods_intent_split `
+  -Headers @{ "Content-Type" = "application/json" } `
+  -Body $body `
+  -TimeoutSec 180
+```
+
 ## ACP flow examples (MCP-backed)
 
 Phenotype improvements:

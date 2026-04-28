@@ -38,6 +38,11 @@ class PhenotypeIntentSplitInput(BaseModel):
     llm_result: Optional[Dict[str, Any]] = None
 
 
+class CohortMethodsIntentSplitInput(BaseModel):
+    study_intent: str
+    llm_result: Optional[Dict[str, Any]] = None
+
+
 class PhenotypeValidationReviewInput(BaseModel):
     disease_name: str = ""
     keeper_row: Dict[str, Any] = Field(default_factory=dict)
@@ -237,6 +242,18 @@ class PhenotypeIntentSplitOutput(BaseModel):
     plan: str
     target_statement: str
     outcome_statement: str
+    rationale: str
+    questions: List[str] = Field(default_factory=list)
+    mode: str
+
+
+class CohortMethodsIntentSplitOutput(BaseModel):
+    status: Literal["ok", "needs_clarification"]
+    plan: str
+    target_statement: str
+    comparator_statement: str
+    outcome_statement: str
+    outcome_statements: List[str] = Field(default_factory=list)
     rationale: str
     questions: List[str] = Field(default_factory=list)
     mode: str

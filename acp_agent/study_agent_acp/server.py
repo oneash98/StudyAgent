@@ -23,6 +23,7 @@ SERVICES = [
     {"name": "keeper_profiles_generate", "endpoint": "/flows/keeper_profiles_generate"},
     {"name": "phenotype_recommendation_advice", "endpoint": "/flows/phenotype_recommendation_advice"},
     {"name": "phenotype_intent_split", "endpoint": "/flows/phenotype_intent_split"},
+    {"name": "cohort_methods_intent_split", "endpoint": "/flows/cohort_methods_intent_split"},
 ]
 SERVICE_REGISTRY_PATH = os.getenv("STUDY_AGENT_SERVICE_REGISTRY", "docs/SERVICE_REGISTRY.yaml")
 logger = logging.getLogger("study_agent.acp")
@@ -552,6 +553,26 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 if self.debug:
                     logger.exception("flow_failed name=phenotype_intent_split")
+                _write_json(self, 500, {"error": "flow_failed", "detail": str(exc) if self.debug else None})
+                return
+            status = 200 if result.get("status") != "error" else 500
+            _write_json(self, status, result)
+            return
+
+        if self.path == "/flows/cohort_methods_intent_split":
+            try:
+                body = _read_json(self)
+            except Exception as exc:
+                _write_json(self, 400, {"error": f"invalid_json: {exc}"})
+                return
+            study_intent = body.get("study_intent") or body.get("query") or ""
+            try:
+                result = self.agent.run_cohort_methods_intent_split_flow(
+                    study_intent=study_intent,
+                )
+            except Exception as exc:
+                if self.debug:
+                    logger.exception("flow_failed name=cohort_methods_intent_split")
                 _write_json(self, 500, {"error": "flow_failed", "detail": str(exc) if self.debug else None})
                 return
             status = 200 if result.get("status") != "error" else 500

@@ -1,5 +1,70 @@
 # Cohort Methods Shell Handoff
 
+## 0. Current Update: Cohort Methods Intent Split
+
+- A separate cohort-methods study intent split flow is now implemented:
+  - ACP endpoint: `/flows/cohort_methods_intent_split`
+  - MCP tool: `cohort_methods_intent_split`
+  - Core helper: `cohort_methods_intent_split()`
+- This is intentionally separate from the existing incidence-oriented `/flows/phenotype_intent_split`.
+  - Existing `phenotype_intent_split` remains target/outcome only.
+  - Cohort methods split returns target/comparator/outcome fields.
+- Prompt assets live with the phenotype prompt assets:
+  - `mcp_server/prompts/phenotype/overview_cohort_methods_intent_split.md`
+  - `mcp_server/prompts/phenotype/spec_cohort_methods_intent_split.md`
+  - `mcp_server/prompts/phenotype/output_schema_cohort_methods_intent_split.json`
+- The cohort methods split output now supports multi-outcome at the ACP/MCP/Core contract layer:
+  - `outcome_statement`: single compatibility / primary outcome statement
+  - `outcome_statements`: list of one or more outcome statements
+- `runStrategusCohortMethodsShell()` now attempts to use `/flows/cohort_methods_intent_split`
+  to derive target/comparator/outcome statement defaults when explicit or cached statements are not already available.
+  - Explicit function arguments still win.
+  - Cached manual intent/input still win before ACP split.
+  - Hardcoded target/comparator/outcome statement fallback has been removed.
+    ACP unavailable or split failure now leaves statements empty and requires manual entry in interactive mode,
+    or fails closed in non-interactive mode unless explicit/cached statements are supplied.
+  - R shell now consumes `outcome_statements` and preserves `outcome_statement` as the primary/backward-compatible scalar.
+  - When multiple outcome statements are available and explicit outcome IDs are not supplied, the shell runs
+    outcome phenotype recommendation once per outcome statement.
+  - Interactive UX now displays all suggested outcome statements and prompts `Outcome 1`, `Outcome 2`, etc.,
+    with an option to add more outcome statements manually.
+  - The shell persists `outcome_statements`, per-outcome `outcome_recommendations`,
+    and `outcome_cohort_statements` in state artifacts where appropriate.
+- LLM response parsing has been hardened for schema echo:
+  - Some models returned the JSON schema object followed by the actual answer JSON.
+  - `llm_client` now scans multiple JSON objects and chooses the one matching required keys.
+- New/updated docs:
+  - `docs/COHORT_METHODS_INTENT_SPLIT_STRUCTURE.md`
+  - `docs/SERVICE_REGISTRY.yaml`
+  - `docs/STRATEGUS_COHORT_METHODS_SHELL.md`
+  - `docs/TESTING.md`
+  - `README.md`
+  - `CODING_AGENT_README.md`
+- New smoke entry:
+  - `tests/cohort_methods_intent_split_smoke_test.py`
+  - `doit smoke_cohort_methods_intent_split_flow`
+
+### Current Verification
+
+- Passed targeted Python tests:
+  - `python -m pytest -q tests/test_core_tools.py::test_cohort_methods_intent_split_llm tests/test_core_tools.py::test_cohort_methods_intent_split_backfills_outcome_statements tests/test_core_tools.py::test_cohort_methods_intent_split_requires_comparator_when_ok tests/test_core_tools.py::test_cohort_methods_intent_split_allows_clarification tests/test_acp_server.py::test_flow_cohort_methods_intent_split tests/test_acp_server.py::test_flow_cohort_methods_intent_split_schema_mismatch tests/test_mcp_prompt_bundle.py::test_cohort_methods_intent_split_bundle_schema`
+  - `python -m pytest -q tests/test_mcp_prompt_bundle.py::test_cohort_methods_intent_split_bundle_schema tests/test_acp_server.py::test_flow_cohort_methods_intent_split tests/test_mcp_tools_registry.py::test_register_all_tools`
+- Passed schema parse:
+  - `python -m json.tool mcp_server/prompts/phenotype/output_schema_cohort_methods_intent_split.json`
+- Passed R checks:
+  - `Rscript -e "source('R/OHDSIAssistant/R/strategus_cohort_methods_shell.R')"`
+  - Non-interactive cohort methods shell smoke with explicit target/comparator/outcome IDs.
+- Passed current focused checks:
+  - `python -m pytest -q tests/test_llm_client.py`
+  - `python -m py_compile acp_agent/study_agent_acp/llm_client.py`
+  - `git diff --check -- acp_agent/study_agent_acp/llm_client.py tests/test_llm_client.py`
+  - `git diff --check -- R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
+  - R source check using `C:/Program Files/R/R-4.5.3/bin/Rscript.exe`
+  - R non-interactive explicit-ID smoke after hardcoded fallback removal
+  - R mock-ACP multi-outcome smoke confirming two outcome recommendation calls
+- Full `pytest` is currently blocked by local pytest temp/cache permission errors involving `pytest-cache-files-*`
+  and `tmp/pytest-*` directories, not by observed test assertion failures.
+
 ## 1. Completed Work
 
 - `runStrategusCohortMethodsShell()` remains the main active shell entrypoint in:
@@ -37,6 +102,18 @@
   - `06_cm_spec.R`
   - `07_cm_run_analyses.R`
 - Cohort/concept-set validation, cache/resume behavior, repeated outcome ID entry, and placeholder concept-set capture remain in place.
+- Cohort methods intent split is now active in the shell:
+  - It writes/reads `outputs/cohort_methods_intent_split.json`.
+  - It no longer falls back to fixed metformin/sulfonylurea/GI bleeding statements.
+  - If ACP returns an error, interactive runs print a concise split error summary and continue to manual statement entry.
+  - Non-interactive runs require explicit/cached statements or a successful split.
+  - `outcome_statements` are normalized/deduplicated and can drive per-outcome phenotype recommendation.
+  - `outcome_statement` remains the first/primary outcome for compatibility.
+  - Per-outcome recommendation files use:
+    - `outputs/recommendations_outcome.json`
+    - `outputs/recommendations_outcome_2.json`
+    - `outputs/recommendations_outcome_3.json`, etc.
+  - `cm_comparisons.json` outcomes now include the statement mapped to the selected outcome cohort when available.
 - Analytic settings are still always collected, with mode selection:
   - `step_by_step`
   - `free_text`
@@ -171,6 +248,14 @@
     `analysis-settings/cmAnalysis.json`.
   - Helper checks confirmed the `null` rules for no-PS/no-trim and stratify/equipoise cases.
   - Date validation now accepts `YYYYMMDD` and rejects `YYYY-MM-DD`.
+  - `tests/test_llm_client.py` passes after adding coverage for schema-echo followed by valid answer JSON.
+  - Mock ACP multi-outcome R shell smoke confirmed:
+    - split result can include GI bleeding and MACE as separate outcome statements
+    - the shell creates separate outcome recommendation calls/files
+    - selected outcome cohorts keep statement mappings in generated artifacts
+  - Explicit-ID R shell smoke confirmed:
+    - explicit statements and IDs bypass intent split/recommendation as intended
+    - hardcoded statement fallback is no longer used
 
 ## 3. In-Progress / Important Current State
 
@@ -188,12 +273,22 @@
   `outputs/cm_analysis_defaults.json` remains in place for current generated-script compatibility.
 - `06_cm_spec.R` still reads `outputs/cm_analysis_defaults.json`; it has not yet been switched
   to consume `analysis-settings/cmAnalysis.json` directly.
+- ACP/MCP prompt-bundle calls can still be sensitive to the running ACP/MCP process version/state.
+  If `/flows/cohort_methods_intent_split` returns `not_found` or `cohort_methods_intent_split_prompt_failed`,
+  restart ACP/MCP from the current workspace before debugging the R shell.
+- When re-testing intent split, remove stale caches such as:
+  - `demo-strategus-cohort-methods/outputs/cohort_methods_intent_split.json`
+  - `demo-strategus-cohort-methods/outputs/manual_inputs.json`
+  - selected cohort cache directories if recommendation/selection behavior should be re-run from scratch.
 
 ## 4. Remaining TODO
 
 - Highest-priority next steps:
   1. Finish comparator settings.
-  2. Complete ACP/MCP implementation for analysis settings recommendation.
+  2. Harden prompt instructions for cohort methods intent split so models do not echo the schema.
+  3. Complete ACP/MCP implementation for analysis settings recommendation.
+- Consider API-level structured output / response format support for intent split flows instead of relying
+  only on prompt instructions and parser salvage.
 - Implement the real ACP flow:
   - `/flows/cohort_methods_specifications_recommendation`
 - Decide whether cohort methods ACP behavior should fully match incidence-shell behavior or intentionally remain more fault-tolerant.
@@ -207,6 +302,8 @@
 - Decide whether the generated `06_cm_spec.R` should continue reading `cm_analysis_defaults.json` directly or instead consume a more explicit analytic-settings JSON contract.
 - Decide whether covariate settings should stay outside the required step-by-step section flow or be folded back in later.
 - Add broader regression coverage for:
+  - interactive multi-outcome statement confirmation UX
+  - stale cache behavior around multi-outcome split and selected outcome IDs
   - full shell `step_by_step` runs
   - `free_text` mode with `analyticSettingsDescription`
   - `free_text` mode with `analyticSettingsDescriptionPath`
@@ -253,10 +350,21 @@
   - Reason: explicit user requirement during this session, aligned to OHDSI references.
 - `customized_sections` is computed from actual values versus defaults.
   - Reason: avoids stale cache-driven section labels and better reflects the real effective configuration.
+- Hardcoded cohort statement fallback was removed.
+  - Reason: after cohort methods intent split became available, silent fallback to metformin/sulfonylurea/GI bleeding
+    could hide ACP, MCP, or LLM failures and produce misleading downstream recommendations.
+- `outcome_statement` remains as a scalar compatibility field, but `outcome_statements` is the multi-outcome source of truth.
+  - Reason: downstream artifacts and older code paths still expect a primary outcome statement, while cohort methods
+    studies can naturally include multiple outcomes such as GI bleeding and MACE.
+- LLM parser salvage for schema echo was added.
+  - Reason: small models may echo the output schema JSON before emitting the actual answer JSON; the parser now chooses
+    the JSON object matching required keys rather than failing on the schema object.
 
 ## 6. Files Changed In This Session
 
 - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
+- `acp_agent/study_agent_acp/llm_client.py`
+- `tests/test_llm_client.py`
 - `R/OHDSIAssistant/inst/templates/cmAnalysis_template.json`
 - `R/OHDSIAssistant/inst/templates/CM_ANALYSIS_TEMPLATE.md`
 
@@ -264,6 +372,8 @@
 
 - As of this update, relevant modified/untracked files include:
   - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
+  - `acp_agent/study_agent_acp/llm_client.py`
+  - `tests/test_llm_client.py`
   - `R/OHDSIAssistant/inst/templates/` (new)
 
 ## 8. Best Next Step

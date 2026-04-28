@@ -207,6 +207,39 @@ def build_intent_split_prompt(
     return "\n\n".join([s for s in sections if s])
 
 
+def build_cohort_methods_intent_split_prompt(
+    overview: str,
+    spec: str,
+    output_schema: Dict[str, Any],
+    study_intent: str,
+) -> str:
+    dynamic = {
+        "task": "cohort_methods_intent_split",
+        "study_intent": study_intent,
+    }
+    strict_rules = "\n\n".join(
+        [
+            "STRICT OUTPUT RULES:",
+            spec,
+            "Return exactly ONE JSON object that matches the output schema.",
+            "Do NOT wrap output in markdown, code fences, or prose.",
+            "If uncertain, set status to needs_clarification and include clarifying questions.",
+            "When status is ok, target_statement, comparator_statement, and outcome_statement must be non-empty.",
+            "Keep output under 8 KB.",
+        ]
+    )
+    sections = [
+        overview,
+        "OUTPUT SCHEMA (JSON):",
+        json.dumps(output_schema, ensure_ascii=True),
+        "Below is dynamic content to analyze. Do not act until after STRICT OUTPUT RULES.",
+        "DYNAMIC INPUT (JSON):",
+        json.dumps(dynamic, ensure_ascii=True),
+        strict_rules,
+    ]
+    return "\n\n".join([s for s in sections if s])
+
+
 def build_keeper_prompt(
     overview: str,
     spec: str,
@@ -279,17 +312,15 @@ def _normalize_content_text(text: Optional[str]) -> str:
     return normalized
 
 
-def _extract_json_object(text: str) -> Optional[str]:
+def _extract_json_objects(text: str) -> list[str]:
     if not text:
-        return None
-    start = text.find("{")
-    if start == -1:
-        return None
+        return []
+    objects: list[str] = []
     depth = 0
     in_string = False
     escape = False
-    for idx in range(start, len(text)):
-        ch = text[idx]
+    start: Optional[int] = None
+    for idx, ch in enumerate(text):
         if in_string:
             if escape:
                 escape = False
@@ -301,28 +332,57 @@ def _extract_json_object(text: str) -> Optional[str]:
         if ch == '"':
             in_string = True
         elif ch == "{":
+            if depth == 0:
+                start = idx
             depth += 1
         elif ch == "}":
             depth -= 1
-            if depth == 0:
-                return text[start : idx + 1]
-    return None
+            if depth == 0 and start is not None:
+                objects.append(text[start : idx + 1])
+                start = None
+    return objects
 
 
-def _parse_json_content(text: Optional[str]) -> tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
+def _extract_json_object(text: str) -> Optional[str]:
+    objects = _extract_json_objects(text)
+    return objects[0] if objects else None
+
+
+def _parse_json_content(
+    text: Optional[str],
+    required_keys: Optional[Sequence[str]] = None,
+) -> tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     normalized = _normalize_content_text(text)
     if not normalized:
         return None, normalized, "content_missing"
-    candidate = _extract_json_object(normalized)
-    if candidate is None:
+    candidates = _extract_json_objects(normalized)
+    if not candidates:
         return None, normalized, "json_brace_extract"
-    try:
-        parsed = json.loads(candidate)
-    except json.JSONDecodeError:
-        return None, normalized, "json_loads"
-    if not isinstance(parsed, dict):
-        return None, normalized, "json_not_object"
-    return parsed, normalized, None
+    parsed_objects: list[Dict[str, Any]] = []
+    saw_non_object = False
+    saw_decode_error = False
+    for candidate in candidates:
+        try:
+            parsed_candidate = json.loads(candidate)
+        except json.JSONDecodeError:
+            saw_decode_error = True
+            continue
+        if not isinstance(parsed_candidate, dict):
+            saw_non_object = True
+            continue
+        parsed_objects.append(parsed_candidate)
+    if not parsed_objects:
+        if saw_decode_error:
+            return None, normalized, "json_loads"
+        if saw_non_object:
+            return None, normalized, "json_not_object"
+        return None, normalized, "json_brace_extract"
+    required = list(required_keys or [])
+    if required:
+        for parsed_candidate in parsed_objects:
+            if all(key in parsed_candidate for key in required):
+                return parsed_candidate, normalized, None
+    return parsed_objects[0], normalized, None
 
 
 def _is_timeout_error(exc: BaseException) -> bool:
@@ -551,7 +611,10 @@ def call_llm(prompt: str, required_keys: Optional[Sequence[str]] = None) -> LLMC
     parse_source = content_text
     if parse_source is None and data is None:
         parse_source = raw
-    parsed, normalized_content, parse_error_stage = _parse_json_content(parse_source)
+    parsed, normalized_content, parse_error_stage = _parse_json_content(
+        parse_source,
+        required_keys=required_keys,
+    )
     result = LLMCallResult(
         status="ok" if parsed is not None else "json_parse_failed",
         raw_response=raw,

@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, List, Optional, Protocol
 
 from study_agent_core.models import (
+    CohortMethodsIntentSplitInput,
     CohortLintInput,
     ConceptSetDiffInput,
     KeeperConceptSetsGenerateInput,
@@ -14,6 +15,7 @@ from study_agent_core.models import (
     PhenotypeRecommendationsInput,
 )
 from study_agent_core.tools import (
+    cohort_methods_intent_split,
     cohort_lint,
     phenotype_intent_split,
     phenotype_improvements,
@@ -23,6 +25,7 @@ from study_agent_core.tools import (
 )
 from .llm_client import (
     LLMCallResult,
+    build_cohort_methods_intent_split_prompt,
     build_intent_split_prompt,
     build_advice_prompt,
     build_keeper_concept_set_prompt,
@@ -64,6 +67,7 @@ class StudyAgent:
             "phenotype_recommendation_advice": phenotype_recommendation_advice,
             "phenotype_improvements": phenotype_improvements,
             "phenotype_intent_split": phenotype_intent_split,
+            "cohort_methods_intent_split": cohort_methods_intent_split,
         }
 
         self._schemas = {
@@ -73,6 +77,7 @@ class StudyAgent:
             "phenotype_recommendation_advice": PhenotypeRecommendationAdviceInput.model_json_schema(),
             "phenotype_improvements": PhenotypeImprovementsInput.model_json_schema(),
             "phenotype_intent_split": PhenotypeIntentSplitInput.model_json_schema(),
+            "cohort_methods_intent_split": CohortMethodsIntentSplitInput.model_json_schema(),
             "keeper_concept_sets_generate": KeeperConceptSetsGenerateInput.model_json_schema(),
             "keeper_profiles_generate": KeeperProfilesGenerateInput.model_json_schema(),
         }
@@ -489,6 +494,75 @@ class StudyAgent:
             study_intent=study_intent,
             llm_result=llm_payload,
         )
+
+        return {
+            "status": "ok",
+            "llm_used": True,
+            "llm_status": llm_result.status,
+            "intent_split": core_result,
+            "diagnostics": self._llm_diagnostics(llm_result),
+        }
+
+    def run_cohort_methods_intent_split_flow(
+        self,
+        study_intent: str,
+    ) -> Dict[str, Any]:
+        if not study_intent:
+            return {"status": "error", "error": "missing study_intent"}
+        if self._mcp_client is None:
+            return {"status": "error", "error": "MCP client unavailable"}
+        prompt_bundle = self.call_tool(
+            name="cohort_methods_intent_split",
+            arguments={},
+        )
+        prompt_full = prompt_bundle.get("full_result") or {}
+        if prompt_bundle.get("status") != "ok" or prompt_full.get("error"):
+            return {
+                "status": "error",
+                "error": "cohort_methods_intent_split_prompt_failed",
+                "details": prompt_bundle,
+            }
+
+        prompt = build_cohort_methods_intent_split_prompt(
+            overview=prompt_full.get("overview", ""),
+            spec=prompt_full.get("spec", ""),
+            output_schema=prompt_full.get("output_schema", {}),
+            study_intent=study_intent,
+        )
+        self._log_debug("cohort_methods_intent_split: calling LLM")
+        llm_result = self._call_llm(
+            prompt,
+            required_keys=[
+                "status",
+                "target_statement",
+                "comparator_statement",
+                "outcome_statement",
+                "outcome_statements",
+                "rationale",
+            ],
+        )
+        self._log_debug(
+            "cohort_methods_intent_split: LLM returned "
+            f"status={llm_result.status} parse_stage={llm_result.parse_stage}"
+        )
+        llm_payload = llm_result_payload(llm_result)
+        if llm_payload is None:
+            return {
+                "status": "error",
+                "error": "llm_unavailable",
+                "diagnostics": self._llm_diagnostics(llm_result),
+            }
+        core_result = cohort_methods_intent_split(
+            study_intent=study_intent,
+            llm_result=llm_payload,
+        )
+        if core_result.get("error"):
+            return {
+                "status": "error",
+                "error": core_result.get("error"),
+                "details": core_result,
+                "diagnostics": self._llm_diagnostics(llm_result),
+            }
 
         return {
             "status": "ok",

@@ -2,8 +2,8 @@
 
 Current stage scope:
 
-- Manual shell only.
-- No ACP or MCP calls are executed inside the shell.
+- Cohort methods shell with ACP-assisted intent split and phenotype recommendation.
+- The shell can derive target/comparator/outcome statements from a study intent.
 - The shell writes reproducible R script scaffolds for later CohortMethod execution.
 
 This shell is provided as `OHDSIAssistant::runStrategusCohortMethodsShell()`.
@@ -36,13 +36,15 @@ analytic-settings-focused artifacts under `outputDir/outputs/`.
 
 1. Manual collection of required identifiers:
    - `studyIntent`
-   - `targetCohortId` (single ID)
-   - `comparatorCohortId` (single ID)
-   - `outcomeCohortIds` (one or more IDs)
-2. Optional cohort ID remap step to avoid collisions (`remapCohortIds`).
-3. Copy cohort JSON definitions from `indexDir/definitions` into selected cohort folders.
-4. Optional negative control and covariate concept-set IDs are captured as placeholders.
-5. Configure one analytic-settings profile interactively:
+2. ACP-assisted split of `studyIntent` into:
+   - `targetStatement`
+   - `comparatorStatement`
+   - `outcomeStatement`
+3. Role-specific phenotype recommendation / cache reuse for target, comparator, and outcome cohorts.
+4. Optional cohort ID remap step to avoid collisions (`remapCohortIds`).
+5. Copy cohort JSON definitions from `indexDir/definitions` into selected cohort folders.
+6. Optional negative control and covariate concept-set IDs are captured as placeholders.
+7. Configure one analytic-settings profile interactively:
    - Analytic settings are always collected in this stage.
    - Choose one mode first:
      - `step_by_step`
@@ -62,8 +64,8 @@ analytic-settings-focused artifacts under `outputDir/outputs/`.
    - If that is absent, it next uses `analyticSettingsDescriptionPath` when provided.
    - If neither is provided, the shell asks the user to type the description interactively.
    - `free_text` also writes a dummy recommendation artifact and requires confirmation before finalizing the cached state.
-6. Write comparison metadata and TODO artifacts.
-7. Generate scripts in `scripts/` for cohort generation, keeper review, diagnostics, CM spec, and CM run.
+8. Write comparison metadata and TODO artifacts.
+9. Generate scripts in `scripts/` for cohort generation, keeper review, diagnostics, CM spec, and CM run.
 
 ## Analytic Settings
 
@@ -225,12 +227,16 @@ The following directories are created under `outputDir`:
 
 - `manual_intent.json`
 - `manual_inputs.json`
+- `cohort_methods_intent_split.json`
 - `cohort_id_map.json`
 - `cohort_roles.json`
 - `cm_comparisons.json`
 - `cm_analysis_defaults.json`
 - `cm_analytic_settings_recommendation.json` (free-text mode only)
 - `cm_concept_set_selections.json`
+- `improvements_target.json`
+- `improvements_comparator.json`
+- `improvements_outcome.json`
 - `improvements_status.json`
 - `cm_evaluation_todo.json`
 - `acp_mcp_todo.json`
@@ -252,6 +258,7 @@ effective `analytic_settings` object plus `customized_sections`.
 
 ## Generated Scripts
 
+- `scripts/02_apply_improvements.R`
 - `scripts/03_generate_cohorts.R`
 - `scripts/04_keeper_review.R`
 - `scripts/05_diagnostics.R`
@@ -262,13 +269,14 @@ Each script is generated as a runnable scaffold and contains placeholders (for e
 `<FILL IN>`) where site-specific settings are required, especially connection and
 execution details.
 
-## TODO Boundaries (Current Stage)
+## Current Boundaries
 
-- ACP integration points are currently deferred:
-  - `phenotype_intent_split`
-  - `phenotype_recommendation` for target/comparator/outcomes
-  - `phenotype_recommendation_advice`
-  - `phenotype_improvements`
+- `phenotype_improvements` is wired for target, comparator, and outcome cohorts. The shell writes
+  role-specific improvement artifacts after prompting whether to run improvements for each role,
+  can apply mutating actions (`set`, `replace`, `update`), keeps advisory `note` actions as
+  recommendations, and keeps `patched-cohorts/` complete for downstream scripts when any mutating
+  improvement is applied.
+- Remaining deferred integration points:
   - comparator reuse lookup
   - phenotype index search for suggestion workflows
 - Atlas settings deferred in this stage:

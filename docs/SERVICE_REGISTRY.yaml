@@ -191,3 +191,18 @@ services:
       - questions
     validation:
       - core.phenotype_intent_split schema validation
+
+  cohort_methods_intent_split:
+    endpoint: /flows/cohort_methods_intent_split
+    mcp_tools:
+      - cohort_methods_intent_split
+    input:
+      - study_intent
+    output:
+      - target_statement
+      - comparator_statement
+      - outcome_statement
+      - rationale
+      - questions
+    validation:
+      - core.cohort_methods_intent_split schema validation

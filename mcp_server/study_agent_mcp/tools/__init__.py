@@ -8,6 +8,7 @@ from typing import Iterable
 TOOL_MODULES: list[str] = [
     "study_agent_mcp.tools.concept_set_diff",
     "study_agent_mcp.tools.cohort_lint",
+    "study_agent_mcp.tools.cohort_methods_intent_split",
     "study_agent_mcp.tools.phenotype_recommendations",
     "study_agent_mcp.tools.phenotype_improvements",
     "study_agent_mcp.tools.phenotype_intent_split",

@@ -22,6 +22,7 @@ def test_register_all_tools() -> None:
     assert set(mcp.registered) == {
         "propose_concept_set_diff",
         "cohort_lint",
+        "cohort_methods_intent_split",
         "phenotype_recommendations",
         "phenotype_improvements",
         "phenotype_intent_split",
