@@ -297,11 +297,12 @@ class ACPRequestHandler(BaseHTTPRequestHandler):
             try:
                 result = self.agent.run_cohort_methods_specs_recommendation_flow(
                     analytic_settings_description=payload.analytic_settings_description,
-                    study_intent=payload.study_intent,
-                    current_specifications=payload.current_specifications,
-                    cohort_definitions=payload.cohort_definitions,
-                    negative_control_concept_set=payload.negative_control_concept_set,
-                    covariate_selection=payload.covariate_selection,
+                    study_intent=payload.study_intent or "",
+                    target_cohort_id=payload.target_cohort_id,
+                    comparator_cohort_id=payload.comparator_cohort_id,
+                    outcome_cohort_ids=payload.outcome_cohort_ids,
+                    comparison_label=payload.comparison_label,
+                    defaults_snapshot=payload.defaults_snapshot,
                 )
             except Exception as exc:
                 if self.debug:
