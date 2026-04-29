@@ -1,24 +1,27 @@
 #' Suggest cohort method study specifications from a free-text description.
 #'
 #' Calls the ACP flow `/flows/cohort_methods_specifications_recommendation`
-#' and returns a Theseus-shaped specification plus per-section rationales.
-#' Falls back to a local stub when `acp_state$url` is NULL.
+#' and returns the cohort-methods recommendation, full Theseus spec for
+#' traceability, and per-section rationales. Falls back to a local stub
+#' when `acp_state$url` is NULL.
 #'
 #' @param analyticSettingsDescription free-text description of the study design
-#' @param cohortDefinitions list with `targetCohort`, `comparatorCohort`, `outcomeCohort`
-#' @param negativeControlConceptSet list with `id`, `name`
-#' @param covariateSelection list with `conceptsToInclude`, `conceptsToExclude`
+#' @param targetCohortId optional integer cohort ID for the target arm
+#' @param comparatorCohortId optional integer cohort ID for the comparator arm
+#' @param outcomeCohortIds optional integer vector of outcome cohort IDs
+#' @param comparisonLabel optional comparison label string
+#' @param defaultsSnapshot optional list mirroring `effective_analytic_settings`
 #' @param studyIntent optional protocol context string
-#' @param currentSpecifications optional existing Theseus spec for iterative refinement
 #' @param interactive when TRUE, prints a section summary (default: TRUE)
 #' @return list response from ACP flow or local stub
 #' @export
 suggestCohortMethodSpecs <- function(analyticSettingsDescription,
-                                     cohortDefinitions = NULL,
-                                     negativeControlConceptSet = NULL,
-                                     covariateSelection = NULL,
+                                     targetCohortId = NULL,
+                                     comparatorCohortId = NULL,
+                                     outcomeCohortIds = NULL,
+                                     comparisonLabel = NULL,
+                                     defaultsSnapshot = NULL,
                                      studyIntent = NULL,
-                                     currentSpecifications = NULL,
                                      interactive = TRUE) {
   if (is.null(analyticSettingsDescription) || !nzchar(trimws(analyticSettingsDescription))) {
     stop("Provide a non-empty analyticSettingsDescription.")
@@ -26,11 +29,13 @@ suggestCohortMethodSpecs <- function(analyticSettingsDescription,
 
   body <- list(
     analytic_settings_description = analyticSettingsDescription,
-    study_intent = studyIntent %||% "",
-    current_specifications = currentSpecifications,
-    cohort_definitions = cohortDefinitions %||% list(),
-    negative_control_concept_set = negativeControlConceptSet %||% list(),
-    covariate_selection = covariateSelection %||% list()
+    study_description             = analyticSettingsDescription,
+    study_intent                  = studyIntent %||% "",
+    target_cohort_id              = if (is.null(targetCohortId)) NULL else as.integer(targetCohortId),
+    comparator_cohort_id          = if (is.null(comparatorCohortId)) NULL else as.integer(comparatorCohortId),
+    outcome_cohort_ids            = if (is.null(outcomeCohortIds)) list() else as.list(as.integer(outcomeCohortIds)),
+    comparison_label              = comparisonLabel,
+    defaults_snapshot             = defaultsSnapshot %||% list()
   )
 
   res <- if (!is.null(acp_state$url)) {
@@ -42,10 +47,13 @@ suggestCohortMethodSpecs <- function(analyticSettingsDescription,
   if (isTRUE(interactive)) {
     cat("\n== Cohort Method Specifications ==\n")
     cat("Status:", res$status %||% "(missing)", "\n")
-    rats <- res$sectionRationales %||% list()
-    if (length(rats) == 0) {
-      cat("  (no section rationales — likely a stub response)\n")
-    } else {
+    rec <- res$recommendation %||% list()
+    if (length(rec) > 0) {
+      cat("Profile:", rec$profile_name %||% "(none)", "\n")
+      cat("Recommendation status:", rec$status %||% "(none)", "\n")
+    }
+    rats <- res$section_rationales %||% list()
+    if (length(rats) > 0) {
       for (section in names(rats)) {
         entry <- rats[[section]]
         cat(sprintf("  - %s: confidence=%s  %s\n",
@@ -65,8 +73,26 @@ suggestCohortMethodSpecs <- function(analyticSettingsDescription,
 local_cohort_method_specs <- function(body) {
   list(
     status = "stub",
-    specifications = list(),
-    sectionRationales = list(),
+    recommendation = list(
+      mode = "free_text",
+      input_method = "typed_text",
+      source = "local_stub_no_acp",
+      status = "stub",
+      profile_name = "Recommended from free-text description (stub)",
+      raw_description = body$analytic_settings_description %||% "",
+      study_population = list(),
+      time_at_risk = list(),
+      propensity_score_adjustment = list(),
+      outcome_model = list(),
+      deferred_inputs = list(
+        function_argument_description = "implemented",
+        description_file_path = "implemented",
+        interactive_typed_description = "implemented"
+      ),
+      defaults_snapshot = body$defaults_snapshot %||% list()
+    ),
+    theseus_specifications = list(),
+    section_rationales = list(),
     diagnostics = list(
       source = "local_stub_no_acp",
       reason = "acp_state$url is NULL; call acp_connect(url) first."
