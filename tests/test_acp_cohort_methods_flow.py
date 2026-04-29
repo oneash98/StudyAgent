@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from unittest.mock import MagicMock
 
 import pytest
@@ -68,7 +68,7 @@ def _valid_llm_payload(defaults: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_agent_with_mocks(bundle_payload: Dict[str, Any], llm_result) -> StudyAgent:
-    agent = StudyAgent.__new__(StudyAgent)  # bypass __init__ network setup
+    agent = StudyAgent.__new__(StudyAgent)
     agent._mcp_client = MagicMock()
     agent.call_tool = MagicMock(return_value=bundle_payload)
     agent._call_llm = MagicMock(return_value=llm_result)
@@ -76,21 +76,29 @@ def _build_agent_with_mocks(bundle_payload: Dict[str, Any], llm_result) -> Study
     return agent
 
 
-def test_happy_path_returns_ok_with_specifications() -> None:
+def test_happy_path_returns_hanjae_shape() -> None:
     defaults = _defaults_spec()
     agent = _build_agent_with_mocks(_make_bundle_payload(), _make_llm_result(_valid_llm_payload(defaults)))
     result = agent.run_cohort_methods_specs_recommendation_flow(
         analytic_settings_description="compare A vs B with 1-year washout",
-        cohort_definitions={"targetCohort": {"id": 1, "name": "T"}, "comparatorCohort": {"id": 2, "name": "C"}, "outcomeCohort": [{"id": 3, "name": "O"}]},
-        negative_control_concept_set={"id": 99, "name": "NC"},
-        covariate_selection={"conceptsToInclude": [], "conceptsToExclude": []},
+        target_cohort_id=1,
+        comparator_cohort_id=2,
+        outcome_cohort_ids=[3],
+        comparison_label="A vs B",
+        defaults_snapshot={"profile_name": "snapshot", "input_method": "typed_text"},
     )
     assert result["status"] == "ok"
-    assert result["specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
-    assert result["specifications"]["negativeControlConceptSet"]["id"] == 99
-    assert result["specifications"]["createStudyPopArgs"]["washoutPeriod"] == 365
-    assert "sectionRationales" in result
-    assert result["sectionRationales"]["createStudyPopArgs"]["confidence"] == "high"
+    rec = result["recommendation"]
+    assert rec["mode"] == "free_text"
+    assert rec["source"] == "acp_flow"
+    assert rec["status"] == "received"
+    assert rec["profile_name"] == "Example"
+    assert rec["raw_description"] == "compare A vs B with 1-year washout"
+    assert rec["study_population"]["washoutPeriod"] == 365
+    assert rec["defaults_snapshot"]["profile_name"] == "snapshot"
+    assert "section_rationales" in result
+    assert result["section_rationales"]["createStudyPopArgs"]["confidence"] == "high"
+    assert result["theseus_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
 
 
 def test_client_cohort_ids_override_llm_drift() -> None:
@@ -100,14 +108,14 @@ def test_client_cohort_ids_override_llm_drift() -> None:
     agent = _build_agent_with_mocks(_make_bundle_payload(), _make_llm_result(drifted))
     result = agent.run_cohort_methods_specs_recommendation_flow(
         analytic_settings_description="desc",
-        cohort_definitions={"targetCohort": {"id": 1, "name": "Real"}, "comparatorCohort": {"id": 2, "name": "C"}, "outcomeCohort": [{"id": 3, "name": "O"}]},
+        target_cohort_id=1,
+        comparator_cohort_id=2,
+        outcome_cohort_ids=[3],
     )
-    assert result["specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
-    assert result["specifications"]["cohortDefinitions"]["targetCohort"]["name"] == "Real"
+    assert result["theseus_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
 
 
 def test_llm_parse_error_returns_defaults_fallback() -> None:
-    defaults = _defaults_spec()
     bad = _make_llm_result({}, status="error")
     bad.parsed_payload = None
     bad.raw_response = "this is not json"
@@ -116,22 +124,26 @@ def test_llm_parse_error_returns_defaults_fallback() -> None:
         analytic_settings_description="desc",
     )
     assert result["status"] == "llm_parse_error"
-    assert result["specifications"]["name"] == defaults["name"]
+    assert result["recommendation"]["status"] == "backfilled"
     assert result["diagnostics"]["llm_parse_stage"] in {"json_extract_failed", "json_decode_failed"}
 
 
 def test_section_schema_violation_backfills_with_low_confidence() -> None:
     defaults = _defaults_spec()
     payload = _valid_llm_payload(defaults)
-    payload["specifications"]["fitOutcomeModelArgs"] = {"modelType": "svm", "stratified": False, "useCovariates": False, "inversePtWeighting": False, "prior": None, "control": None}
+    payload["specifications"]["fitOutcomeModelArgs"] = {
+        "modelType": "svm", "stratified": False, "useCovariates": False,
+        "inversePtWeighting": False, "prior": None, "control": None,
+    }
     agent = _build_agent_with_mocks(_make_bundle_payload(), _make_llm_result(payload))
     result = agent.run_cohort_methods_specs_recommendation_flow(
         analytic_settings_description="desc",
     )
     assert result["status"] == "ok"
     assert "fitOutcomeModelArgs" in result["diagnostics"]["failed_sections"]
-    assert result["specifications"]["fitOutcomeModelArgs"]["modelType"] == "cox"
-    assert result["sectionRationales"]["fitOutcomeModelArgs"]["confidence"] == "low"
+    assert result["recommendation"]["status"] == "backfilled"
+    assert result["recommendation"]["outcome_model"]["modelType"] == "cox"
+    assert result["section_rationales"]["fitOutcomeModelArgs"]["confidence"] == "low"
 
 
 def test_missing_description_errors_out() -> None:
@@ -139,7 +151,7 @@ def test_missing_description_errors_out() -> None:
     result = agent.run_cohort_methods_specs_recommendation_flow(
         analytic_settings_description="",
     )
-    assert result["status"] == "llm_parse_error"  # treated as invalid request → fallback to defaults
+    assert result["status"] == "llm_parse_error"
     assert "analytic_settings_description" in json.dumps(result["diagnostics"])
 
 

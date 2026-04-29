@@ -412,10 +412,11 @@ class StudyAgent:
         self,
         analytic_settings_description: str,
         study_intent: str = "",
-        current_specifications: Optional[Dict[str, Any]] = None,
-        cohort_definitions: Optional[Dict[str, Any]] = None,
-        negative_control_concept_set: Optional[Dict[str, Any]] = None,
-        covariate_selection: Optional[Dict[str, Any]] = None,
+        target_cohort_id: Optional[int] = None,
+        comparator_cohort_id: Optional[int] = None,
+        outcome_cohort_ids: Optional[List[int]] = None,
+        comparison_label: Optional[str] = None,
+        defaults_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         import re as _re
 
@@ -423,6 +424,7 @@ class StudyAgent:
             LLM_FILLED_SECTIONS,
             backfill_section_from_defaults,
             merge_client_metadata,
+            theseus_to_hanjae_recommendation,
             validate_section,
             validate_theseus_spec,
         )
@@ -439,10 +441,18 @@ class StudyAgent:
         instruction: str = bundle_full.get("instruction_template", "")
         output_style: str = bundle_full.get("output_style_template", "")
 
-        starting_spec = current_specifications if isinstance(current_specifications, dict) else defaults_spec
-        cohort_definitions = cohort_definitions or {}
-        negative_control_concept_set = negative_control_concept_set or {}
-        covariate_selection = covariate_selection or {}
+        defaults_snapshot = defaults_snapshot or {}
+        outcome_cohort_ids = list(outcome_cohort_ids or [])
+        input_method = str(defaults_snapshot.get("input_method") or "typed_text")
+        profile_name_default = "Recommended from free-text description"
+
+        cohort_definitions: Dict[str, Any] = {}
+        if target_cohort_id is not None:
+            cohort_definitions["targetCohort"] = {"id": int(target_cohort_id), "name": ""}
+        if comparator_cohort_id is not None:
+            cohort_definitions["comparatorCohort"] = {"id": int(comparator_cohort_id), "name": ""}
+        if outcome_cohort_ids:
+            cohort_definitions["outcomeCohort"] = [{"id": int(cid), "name": ""} for cid in outcome_cohort_ids]
 
         diagnostics: Dict[str, Any] = {
             "llm_parse_stage": "ok",
@@ -451,22 +461,35 @@ class StudyAgent:
             "latency_ms": 0,
         }
 
-        if not analytic_settings_description or not analytic_settings_description.strip():
-            diagnostics["llm_parse_stage"] = "json_extract_failed"
-            diagnostics["schema_valid"] = False
-            diagnostics["reason"] = "analytic_settings_description is required"
-            fallback_spec = merge_client_metadata(
+        def _fallback(status: str, *, reason: Optional[str] = None) -> Dict[str, Any]:
+            merged_defaults = merge_client_metadata(
                 defaults_spec,
                 cohort_definitions=cohort_definitions,
-                negative_control=negative_control_concept_set,
-                covariate_selection=covariate_selection,
+                negative_control={},
+                covariate_selection={},
             )
+            recommendation = theseus_to_hanjae_recommendation(
+                theseus_spec=merged_defaults,
+                raw_description=analytic_settings_description or "",
+                defaults_snapshot=defaults_snapshot,
+                profile_name=merged_defaults.get("name") or profile_name_default,
+                input_method=input_method,
+                rec_status="backfilled",
+            )
+            if reason:
+                diagnostics["reason"] = reason
+            diagnostics["schema_valid"] = False
             return {
-                "status": "llm_parse_error",
-                "specifications": fallback_spec,
-                "sectionRationales": {s: {"rationale": "", "confidence": "low"} for s in LLM_FILLED_SECTIONS},
+                "status": status,
+                "recommendation": recommendation,
+                "theseus_specifications": merged_defaults,
+                "section_rationales": {s: {"rationale": "", "confidence": "low"} for s in LLM_FILLED_SECTIONS},
                 "diagnostics": diagnostics,
             }
+
+        if not analytic_settings_description or not analytic_settings_description.strip():
+            diagnostics["llm_parse_stage"] = "json_extract_failed"
+            return _fallback("llm_parse_error", reason="analytic_settings_description is required")
 
         prompt_parts = [
             instruction,
@@ -480,7 +503,7 @@ class StudyAgent:
             "</Study Intent>",
             "",
             "<Current Analysis Specifications>",
-            json.dumps(starting_spec, indent=2),
+            json.dumps(defaults_spec, indent=2),
             "</Current Analysis Specifications>",
             "",
             "<Analysis Specifications Template>",
@@ -507,44 +530,20 @@ class StudyAgent:
                 diagnostics["llm_parse_stage"] = "json_extract_failed"
 
         if not isinstance(payload, dict) or "specifications" not in payload:
-            diagnostics["schema_valid"] = False
-            fallback_spec = merge_client_metadata(
-                defaults_spec,
-                cohort_definitions=cohort_definitions,
-                negative_control=negative_control_concept_set,
-                covariate_selection=covariate_selection,
-            )
-            return {
-                "status": "llm_parse_error",
-                "specifications": fallback_spec,
-                "sectionRationales": {s: {"rationale": "", "confidence": "low"} for s in LLM_FILLED_SECTIONS},
-                "diagnostics": diagnostics,
-            }
+            return _fallback("llm_parse_error")
 
         spec = payload.get("specifications") or {}
         ok_top, missing = validate_theseus_spec(spec)
         if not ok_top:
-            diagnostics["schema_valid"] = False
             diagnostics["llm_parse_stage"] = "schema_validation_failed"
             diagnostics["missing_keys"] = missing
-            fallback_spec = merge_client_metadata(
-                defaults_spec,
-                cohort_definitions=cohort_definitions,
-                negative_control=negative_control_concept_set,
-                covariate_selection=covariate_selection,
-            )
-            return {
-                "status": "schema_validation_error",
-                "specifications": fallback_spec,
-                "sectionRationales": {s: {"rationale": "", "confidence": "low"} for s in LLM_FILLED_SECTIONS},
-                "diagnostics": diagnostics,
-            }
+            return _fallback("schema_validation_error")
 
-        merged = merge_client_metadata(
+        spec = merge_client_metadata(
             spec,
             cohort_definitions=cohort_definitions,
-            negative_control=negative_control_concept_set,
-            covariate_selection=covariate_selection,
+            negative_control={},
+            covariate_selection={},
         )
 
         rationales_in = payload.get("sectionRationales") or {}
@@ -559,19 +558,29 @@ class StudyAgent:
             else:
                 rationales_out[section] = {"rationale": "", "confidence": "low"}
 
-            ok_sec, violations = validate_section(section, merged.get(section))
+            ok_sec, violations = validate_section(section, spec.get(section))
             if not ok_sec:
-                merged = backfill_section_from_defaults(merged, defaults_spec, section)
+                spec = backfill_section_from_defaults(spec, defaults_spec, section)
                 diagnostics["failed_sections"].append(section)
                 rationales_out[section] = {
                     "rationale": (rationales_out[section].get("rationale") or "") + f" [backfilled: {'; '.join(violations)}]",
                     "confidence": "low",
                 }
 
+        rec_status = "backfilled" if diagnostics["failed_sections"] else "received"
+        recommendation = theseus_to_hanjae_recommendation(
+            theseus_spec=spec,
+            raw_description=analytic_settings_description,
+            defaults_snapshot=defaults_snapshot,
+            profile_name=spec.get("name") or profile_name_default,
+            input_method=input_method,
+            rec_status=rec_status,
+        )
         return {
             "status": "ok",
-            "specifications": merged,
-            "sectionRationales": rationales_out,
+            "recommendation": recommendation,
+            "theseus_specifications": spec,
+            "section_rationales": rationales_out,
             "diagnostics": diagnostics,
         }
 
