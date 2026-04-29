@@ -385,3 +385,38 @@
   - add full-shell regression coverage for `step_by_step` and cache/resume paths
 - If continuing UX:
   - decide whether to keep the current selective wizard permanently or expose more non-core settings later
+
+---
+
+## 2026-04-29: Cohort Methods Specifications Recommendation 재정렬 + ACP LLM 파서 fix
+
+`/flows/cohort_methods_specifications_recommendation` 의 wire contract를 `strategus_cohort_methods_shell.R`가 이미 보내고/파싱하는 모양에 맞춰 재정렬하고, 실제 happy-path를 막던 ACP 파서 버그 하나를 같이 잡았음.
+
+### 한 일
+
+- **Pydantic envelope 재정렬** (`core/study_agent_core/models.py`): nested `cohort_definitions` / `negative_control_concept_set` / `covariate_selection` / `current_specifications` → flat IDs (`target_cohort_id`, `comparator_cohort_id`, `outcome_cohort_ids`, `comparison_label`, `defaults_snapshot`). 응답 모양도 `specifications` / `sectionRationales`(camelCase) → `recommendation` / `theseus_specifications` / `section_rationales` triple.
+- **Theseus → Hanjae projector 추가** (`core/study_agent_core/theseus_validation.py`): `theseus_to_hanjae_recommendation()` 순수 헬퍼. TAR 4개 키 → `time_at_risk`, 나머지 `createStudyPopArgs` + `getDbCohortMethodDataArgs` → `study_population.cohortMethodDataArgs`. 모두 deepcopy.
+- **ACP flow handler 재작성** (`acp_agent/study_agent_acp/agent.py:411`): flat IDs 입력, 내부에서 `cohortDefinitions` 조립 → `merge_client_metadata` (LLM drift override) → 섹션별 validate/backfill → projector. Theseus 문서는 `theseus_specifications`로 traceability 유지.
+- **ACP HTTP route 갱신** (`acp_agent/study_agent_acp/server.py:285`): 새 Pydantic 필드 그대로 통과.
+- **R 래퍼 정렬** (`R/OHDSIAssistant/R/cohort_methods_workflow.R`): `suggestCohortMethodSpecs()`가 셸이 보내는 flat body 그대로 전송, `recommendation` / `theseus_specifications` / `section_rationales` 응답 파싱. 로컬 stub도 wire 모양 그대로.
+- **Bug fix:** flow가 존재하지 않는 `parsed_payload` 속성을 보고 있어서 모든 실제 LLM 응답이 fallback(`backfilled`)으로 떨어지던 문제 수정 → `parsed_content` 사용 + fenced-block 폴백을 `content_text`(메시지 본문)에서 추출. MagicMock 테스트도 `parsed_content`로 맞춰 회귀 가능하게.
+- 스모크/`SERVICE_REGISTRY.yaml`/`R/OHDSIAssistant/README.md`/모식도/테스트 런북 업데이트.
+
+### 검증
+
+`test.md` 참조해서 그대로 따라가면 됨:
+
+1. **Pre-flight** — env, `pip install -e .`, R 패키지, `pytest -k "cohort_methods or theseus"` 41 passed.
+2. **ACP endpoint + MCP** — `doit smoke_cohort_methods_specs_recommend_flow` → `status: ok`, 4섹션 high|medium.
+3. **Shell free_text 모드** — R REPL에서 `runStrategusCohortMethodsShell(... analyticSettingsDescription=...)` → `cm_acp_specifications_recommendation.json` 에 `source: acp_flow`, `recommendation.status: received`, `manual_inputs.json` 에 `confirmed_via_acp`.
+4. **Shell step_by_step 모드** — `analyticSettingsDescription` 빼고 모드 prompt 에 `1` → ACP 호출 안 떠야 PASS, `cm_acp_specifications_recommendation.json` 생성 안 됨, `manual_inputs.json` 에 `step_by_step` / `not_applicable`.
+
+본인 머신에서 3개 시나리오 모두 PASS 확인 (2026-04-29).
+
+> ⚠️ 인터랙티브 셸은 `Rscript -e` 로 돌리면 `readline()` 이 비대화형이라 prompt 무한루프. R REPL 안에서 돌릴 것.
+
+### 모식도
+
+- `cohort_methods_architecture.png` — 레이어별 데이터 흐름 (R Shell → ACP route → Flow handler ↔ MCP/LLM/core helpers → Hanjae 응답)
+- `cohort_methods_scenarios.png` — Hanjae 셸 진입부터 모든 분기 (`step_by_step` / `free_text` × description 출처 4종 × ACP 가용성 × HTTP/flow 상태)
+- 소스: `cohort_methods_architecture.mmd`, `cohort_methods_scenarios.mmd`
