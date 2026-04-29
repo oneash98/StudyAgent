@@ -275,11 +275,13 @@ class CaseCausalReviewOutput(BaseModel):
 
 class CohortMethodSpecsRecommendationInput(BaseModel):
     analytic_settings_description: str
-    study_intent: str = ""
-    current_specifications: Optional[Dict[str, Any]] = None
-    cohort_definitions: Dict[str, Any] = Field(default_factory=dict)
-    negative_control_concept_set: Dict[str, Any] = Field(default_factory=dict)
-    covariate_selection: Dict[str, Any] = Field(default_factory=dict)
+    study_intent: Optional[str] = ""
+    study_description: Optional[str] = None
+    target_cohort_id: Optional[int] = None
+    comparator_cohort_id: Optional[int] = None
+    outcome_cohort_ids: List[int] = Field(default_factory=list)
+    comparison_label: Optional[str] = None
+    defaults_snapshot: Dict[str, Any] = Field(default_factory=dict)
     llm_result: Optional[Dict[str, Any]] = None
 
 
@@ -288,8 +290,9 @@ CohortMethodSpecsStatus = Literal["ok", "llm_parse_error", "schema_validation_er
 
 class CohortMethodSpecsRecommendationOutput(BaseModel):
     status: CohortMethodSpecsStatus
-    specifications: Dict[str, Any] = Field(default_factory=dict)
-    sectionRationales: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    recommendation: Dict[str, Any] = Field(default_factory=dict)
+    theseus_specifications: Optional[Dict[str, Any]] = None
+    section_rationales: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
 
 

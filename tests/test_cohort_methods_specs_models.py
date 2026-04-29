@@ -20,26 +20,36 @@ def test_input_accepts_minimal_payload() -> None:
     )
     assert payload.analytic_settings_description == "compare A vs B"
     assert payload.study_intent == ""
-    assert payload.current_specifications is None
-    assert payload.cohort_definitions == {}
-    assert payload.negative_control_concept_set == {}
-    assert payload.covariate_selection == {}
+    assert payload.study_description is None
+    assert payload.target_cohort_id is None
+    assert payload.comparator_cohort_id is None
+    assert payload.outcome_cohort_ids == []
+    assert payload.comparison_label is None
+    assert payload.defaults_snapshot == {}
 
 
-def test_input_accepts_iterative_current_spec() -> None:
+def test_input_accepts_full_hanjae_body() -> None:
     payload = CohortMethodSpecsRecommendationInput(
-        analytic_settings_description="tighten follow-up",
-        current_specifications={"name": "Study", "createStudyPopArgs": {"washoutPeriod": 365}},
+        analytic_settings_description="365-day washout, 1:1 PS match, Cox",
+        study_description="365-day washout, 1:1 PS match, Cox",
+        study_intent="CV outcomes comparative effectiveness",
+        target_cohort_id=1001,
+        comparator_cohort_id=1002,
+        outcome_cohort_ids=[2001, 2002],
+        comparison_label="Sitagliptin vs Glipizide",
+        defaults_snapshot={"profile_name": "default", "input_method": "typed_text"},
     )
-    assert payload.current_specifications is not None
-    assert payload.current_specifications["createStudyPopArgs"]["washoutPeriod"] == 365
+    assert payload.target_cohort_id == 1001
+    assert payload.outcome_cohort_ids == [2001, 2002]
+    assert payload.defaults_snapshot["input_method"] == "typed_text"
 
 
 def test_output_defaults() -> None:
     out = CohortMethodSpecsRecommendationOutput(status="ok")
     assert out.status == "ok"
-    assert out.specifications == {}
-    assert out.sectionRationales == {}
+    assert out.recommendation == {}
+    assert out.theseus_specifications is None
+    assert out.section_rationales == {}
     assert out.diagnostics == {}
 
 
