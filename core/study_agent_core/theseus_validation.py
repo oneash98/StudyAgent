@@ -204,3 +204,55 @@ def backfill_section_from_defaults(
     out = deepcopy(spec) if isinstance(spec, dict) else {}
     out[section_name] = deepcopy(defaults.get(section_name, {}))
     return out
+
+
+_TAR_KEYS: Tuple[str, ...] = ("startAnchor", "riskWindowStart", "endAnchor", "riskWindowEnd")
+
+
+def theseus_to_hanjae_recommendation(
+    *,
+    theseus_spec: Dict[str, Any],
+    raw_description: str,
+    defaults_snapshot: Dict[str, Any],
+    profile_name: str,
+    input_method: str,
+    rec_status: str,
+) -> Dict[str, Any]:
+    """Project a validated Theseus spec into the 4-key recommendation shape the
+    cohort-methods R shell expects.
+
+    See docs/COHORT_METHODS_SPECIFICATIONS_RECOMMENDATION_DESIGN.md §6.
+    """
+    cspa = (theseus_spec or {}).get("createStudyPopArgs") or {}
+    cmda = (theseus_spec or {}).get("getDbCohortMethodDataArgs") or {}
+    psadj = (theseus_spec or {}).get("propensityScoreAdjustment") or {}
+    fmod = (theseus_spec or {}).get("fitOutcomeModelArgs") or {}
+
+    study_population: Dict[str, Any] = {
+        k: deepcopy(v) for k, v in cspa.items() if k not in _TAR_KEYS
+    }
+    if cmda:
+        study_population["cohortMethodDataArgs"] = deepcopy(cmda)
+
+    time_at_risk: Dict[str, Any] = {
+        k: deepcopy(cspa[k]) for k in _TAR_KEYS if k in cspa
+    }
+
+    return {
+        "mode": "free_text",
+        "input_method": input_method,
+        "source": "acp_flow",
+        "status": rec_status,
+        "profile_name": profile_name,
+        "raw_description": raw_description,
+        "study_population": study_population,
+        "time_at_risk": time_at_risk,
+        "propensity_score_adjustment": deepcopy(psadj),
+        "outcome_model": deepcopy(fmod),
+        "deferred_inputs": {
+            "function_argument_description": "implemented",
+            "description_file_path": "implemented",
+            "interactive_typed_description": "implemented",
+        },
+        "defaults_snapshot": deepcopy(defaults_snapshot or {}),
+    }

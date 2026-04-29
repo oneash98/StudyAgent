@@ -194,3 +194,92 @@ def test_backfill_section_rejects_unknown_section() -> None:
     defaults = _minimal_valid_spec()
     with pytest.raises(ValueError):
         backfill_section_from_defaults(spec, defaults, "unknownSection")
+
+
+from study_agent_core.theseus_validation import theseus_to_hanjae_recommendation
+
+
+def _full_spec_with_tar() -> dict:
+    spec = _minimal_valid_spec()
+    spec["createStudyPopArgs"]["washoutPeriod"] = 365
+    spec["createStudyPopArgs"]["startAnchor"] = "cohort start"
+    spec["createStudyPopArgs"]["riskWindowStart"] = 1
+    spec["createStudyPopArgs"]["endAnchor"] = "cohort end"
+    spec["createStudyPopArgs"]["riskWindowEnd"] = 365
+    return spec
+
+
+def test_theseus_to_hanjae_separates_tar_keys() -> None:
+    spec = _full_spec_with_tar()
+    out = theseus_to_hanjae_recommendation(
+        theseus_spec=spec,
+        raw_description="desc",
+        defaults_snapshot={"x": 1},
+        profile_name="P",
+        input_method="typed_text",
+        rec_status="received",
+    )
+    assert out["mode"] == "free_text"
+    assert out["source"] == "acp_flow"
+    assert out["status"] == "received"
+    assert out["profile_name"] == "P"
+    assert out["raw_description"] == "desc"
+    assert out["defaults_snapshot"] == {"x": 1}
+    tar = out["time_at_risk"]
+    assert tar["startAnchor"] == "cohort start"
+    assert tar["riskWindowStart"] == 1
+    assert tar["endAnchor"] == "cohort end"
+    assert tar["riskWindowEnd"] == 365
+    sp = out["study_population"]
+    assert "startAnchor" not in sp
+    assert "riskWindowStart" not in sp
+    assert sp["washoutPeriod"] == 365
+    assert sp["cohortMethodDataArgs"] == spec["getDbCohortMethodDataArgs"]
+    assert out["propensity_score_adjustment"] == spec["propensityScoreAdjustment"]
+    assert out["outcome_model"] == spec["fitOutcomeModelArgs"]
+    assert out["deferred_inputs"]["function_argument_description"] == "implemented"
+
+
+def test_theseus_to_hanjae_honors_rec_status_backfilled() -> None:
+    out = theseus_to_hanjae_recommendation(
+        theseus_spec=_minimal_valid_spec(),
+        raw_description="d",
+        defaults_snapshot={},
+        profile_name="X",
+        input_method="description_argument",
+        rec_status="backfilled",
+    )
+    assert out["status"] == "backfilled"
+    assert out["input_method"] == "description_argument"
+
+
+def test_theseus_to_hanjae_handles_missing_sections() -> None:
+    out = theseus_to_hanjae_recommendation(
+        theseus_spec={},
+        raw_description="d",
+        defaults_snapshot={},
+        profile_name="X",
+        input_method="typed_text",
+        rec_status="received",
+    )
+    assert out["study_population"] == {}
+    assert out["time_at_risk"] == {}
+    assert out["propensity_score_adjustment"] == {}
+    assert out["outcome_model"] == {}
+
+
+def test_theseus_to_hanjae_does_not_mutate_input() -> None:
+    spec = _full_spec_with_tar()
+    snapshot = {"profile_name": "snap"}
+    out = theseus_to_hanjae_recommendation(
+        theseus_spec=spec,
+        raw_description="d",
+        defaults_snapshot=snapshot,
+        profile_name="X",
+        input_method="typed_text",
+        rec_status="received",
+    )
+    out["study_population"]["washoutPeriod"] = 9999
+    out["defaults_snapshot"]["profile_name"] = "mutated"
+    assert spec["createStudyPopArgs"]["washoutPeriod"] == 365
+    assert snapshot["profile_name"] == "snap"
