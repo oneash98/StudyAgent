@@ -48,7 +48,7 @@ def _make_llm_result(content: Dict[str, Any], status: str = "ok") -> MagicMock:
     m.missing_keys = []
     m.raw_response = json.dumps(content) if status == "ok" else "<bad>"
     m.content_text = m.raw_response
-    m.parsed_payload = content if status == "ok" else None
+    m.parsed_content = content if status == "ok" else None
     return m
 
 
@@ -117,7 +117,8 @@ def test_client_cohort_ids_override_llm_drift() -> None:
 
 def test_llm_parse_error_returns_defaults_fallback() -> None:
     bad = _make_llm_result({}, status="error")
-    bad.parsed_payload = None
+    bad.parsed_content = None
+    bad.content_text = "this is not json"
     bad.raw_response = "this is not json"
     agent = _build_agent_with_mocks(_make_bundle_payload(), bad)
     result = agent.run_cohort_methods_specs_recommendation_flow(

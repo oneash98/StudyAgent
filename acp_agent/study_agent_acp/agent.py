@@ -517,9 +517,10 @@ class StudyAgent:
         llm_result = self._call_llm(prompt, required_keys=["specifications", "sectionRationales"])
         diagnostics.update(self._llm_diagnostics(llm_result))
 
-        payload: Optional[Dict[str, Any]] = getattr(llm_result, "parsed_payload", None)
-        if payload is None and getattr(llm_result, "raw_response", None):
-            match = _re.search(r"```json\s*(\{.*?\})\s*```", llm_result.raw_response or "", flags=_re.DOTALL)
+        payload: Optional[Dict[str, Any]] = getattr(llm_result, "parsed_content", None)
+        if payload is None:
+            extract_source = getattr(llm_result, "content_text", None) or getattr(llm_result, "raw_response", None) or ""
+            match = _re.search(r"```json\s*(\{.*?\})\s*```", extract_source, flags=_re.DOTALL)
             if match:
                 try:
                     payload = json.loads(match.group(1))
