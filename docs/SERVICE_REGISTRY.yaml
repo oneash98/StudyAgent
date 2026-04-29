@@ -209,21 +209,32 @@ services:
 
   cohort_methods_specifications_recommendation:
     endpoint: /flows/cohort_methods_specifications_recommendation
-    mcp_tools:
-      - cohort_methods_prompt_bundle
-    input:
-      - analytic_settings_description
-      - study_intent
-      - current_specifications
-      - cohort_definitions
-      - negative_control_concept_set
-      - covariate_selection
-    output:
-      - specifications
-      - sectionRationales
-      - diagnostics
-    validation:
-      - core.theseus_validation.validate_theseus_spec (top-level structure)
-      - core.theseus_validation.validate_section (enum + range checks)
-      - core.theseus_validation.merge_client_metadata (client IDs override LLM)
-      - core.theseus_validation.backfill_section_from_defaults (per-section fallback)
+    method: POST
+    layer: acp+mcp+core
+    purpose: >
+      Translate a free-text description of a comparative-cohort study design into the
+      4-key analytic-settings recommendation shape (`study_population`, `time_at_risk`,
+      `propensity_score_adjustment`, `outcome_model`) consumed by the cohort-methods
+      R shell, with the full Theseus document returned alongside for traceability.
+    request:
+      analytic_settings_description: required string
+      study_description: optional string (echo of analytic_settings_description)
+      study_intent: optional string
+      target_cohort_id: optional integer
+      comparator_cohort_id: optional integer
+      outcome_cohort_ids: list of integers (default empty)
+      comparison_label: optional string
+      defaults_snapshot: optional nested dict (effective_analytic_settings)
+    response:
+      status: ok | llm_parse_error | schema_validation_error
+      recommendation: 4-key object (study_population, time_at_risk, propensity_score_adjustment, outcome_model) plus mode/input_method/source/status/profile_name/raw_description/deferred_inputs/defaults_snapshot
+      theseus_specifications: full Theseus document (internal traceability)
+      section_rationales: per-Theseus-section { rationale, confidence }
+      diagnostics: { llm_parse_stage, schema_valid, failed_sections, latency_ms }
+    pipeline:
+      - mcp.cohort_methods_prompt_bundle
+      - llm
+      - core.validate_theseus_spec
+      - core.merge_client_metadata (built from flat IDs)
+      - core.validate_section + core.backfill_section_from_defaults
+      - core.theseus_to_hanjae_recommendation
