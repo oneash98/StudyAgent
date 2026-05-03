@@ -24,14 +24,6 @@ REQUEST_BODY = {
     "analytic_settings_description": DESCRIPTION,
     "study_description": DESCRIPTION,
     "study_intent": "Comparative effectiveness study on CV outcomes.",
-    "target_cohort_id": 1001,
-    "comparator_cohort_id": 1002,
-    "outcome_cohort_ids": [2001],
-    "comparison_label": "Sitagliptin vs Glipizide",
-    "defaults_snapshot": {
-        "profile_name": "smoke-test",
-        "input_method": "typed_text",
-    },
 }
 
 
@@ -60,10 +52,6 @@ def main() -> int:
 
     assert result.get("status") in {"ok", "schema_validation_error", "llm_parse_error"}, result
     assert rec.get("raw_description"), "recommendation.raw_description must be non-empty"
-    cohort_methods_spec = result.get("cohort_methods_specifications") or {}
-    assert cohort_methods_spec.get("cohortDefinitions", {}).get("targetCohort", {}).get("id") == 1001, (
-        "client target cohort ID must be preserved in cohort_methods_specifications"
-    )
     return 0
 
 

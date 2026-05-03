@@ -413,18 +413,12 @@ class StudyAgent:
         self,
         analytic_settings_description: str,
         study_intent: str = "",
-        target_cohort_id: Optional[int] = None,
-        comparator_cohort_id: Optional[int] = None,
-        outcome_cohort_ids: Optional[List[int]] = None,
-        comparison_label: Optional[str] = None,
-        defaults_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         import re as _re
 
         from study_agent_core.cohort_methods_spec_validation import (
             LLM_FILLED_SECTIONS,
             backfill_section_from_defaults,
-            merge_client_metadata,
             cohort_methods_spec_to_shell_recommendation,
             validate_section,
             validate_cohort_methods_spec,
@@ -446,18 +440,9 @@ class StudyAgent:
         instruction: str = bundle_full.get("instruction_template", "")
         output_style: str = bundle_full.get("output_style_template", "")
 
-        defaults_snapshot = defaults_snapshot or {}
-        outcome_cohort_ids = list(outcome_cohort_ids or [])
-        input_method = str(defaults_snapshot.get("input_method") or "typed_text")
+        defaults_snapshot: Dict[str, Any] = {}
+        input_method = "typed_text"
         profile_name_default = "Recommended from free-text description"
-
-        cohort_definitions: Dict[str, Any] = {}
-        if target_cohort_id is not None:
-            cohort_definitions["targetCohort"] = {"id": int(target_cohort_id), "name": ""}
-        if comparator_cohort_id is not None:
-            cohort_definitions["comparatorCohort"] = {"id": int(comparator_cohort_id), "name": ""}
-        if outcome_cohort_ids:
-            cohort_definitions["outcomeCohort"] = [{"id": int(cid), "name": ""} for cid in outcome_cohort_ids]
 
         diagnostics: Dict[str, Any] = {
             "llm_parse_stage": "ok",
@@ -467,17 +452,11 @@ class StudyAgent:
         }
 
         def _fallback(status: str, *, reason: Optional[str] = None) -> Dict[str, Any]:
-            merged_defaults = merge_client_metadata(
-                defaults_spec,
-                cohort_definitions=cohort_definitions,
-                negative_control={},
-                covariate_selection={},
-            )
             recommendation = cohort_methods_spec_to_shell_recommendation(
-                cohort_methods_spec=merged_defaults,
+                cohort_methods_spec=defaults_spec,
                 raw_description=analytic_settings_description or "",
                 defaults_snapshot=defaults_snapshot,
-                profile_name=merged_defaults.get("description") or merged_defaults.get("name") or profile_name_default,
+                profile_name=defaults_spec.get("description") or defaults_spec.get("name") or profile_name_default,
                 input_method=input_method,
                 rec_status="backfilled",
             )
@@ -487,7 +466,7 @@ class StudyAgent:
             return {
                 "status": status,
                 "recommendation": recommendation,
-                "cohort_methods_specifications": merged_defaults,
+                "cohort_methods_specifications": defaults_spec,
                 "section_rationales": {s: {"rationale": "", "confidence": "low"} for s in LLM_FILLED_SECTIONS},
                 "diagnostics": diagnostics,
             }
@@ -544,13 +523,6 @@ class StudyAgent:
             diagnostics["llm_parse_stage"] = "schema_validation_failed"
             diagnostics["missing_keys"] = missing
             return _fallback("schema_validation_error")
-
-        spec = merge_client_metadata(
-            spec,
-            cohort_definitions=cohort_definitions,
-            negative_control={},
-            covariate_selection={},
-        )
 
         rationale_section_map = {
             "getDbCohortMethodDataArgs": "study_population",

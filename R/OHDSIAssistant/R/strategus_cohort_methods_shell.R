@@ -3352,7 +3352,6 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   cm_comparisons_path <- file.path(output_dir, "cm_comparisons.json")
   improvements_status_path <- file.path(output_dir, "improvements_status.json")
   cm_evaluation_todo_path <- file.path(output_dir, "cm_evaluation_todo.json")
-  acp_mcp_todo_path <- file.path(output_dir, "acp_mcp_todo.json")
   cm_defaults_path <- file.path(output_dir, "cm_analysis_defaults.json")
   cm_analysis_json_path <- file.path(analysis_settings_dir, "cmAnalysis.json")
   cm_analysis_template_path <- system.file("templates", "cmAnalysis_template.json", package = "OHDSIAssistant")
@@ -4868,44 +4867,6 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   )
   write_json(cm_evaluation_todo, cm_evaluation_todo_path)
 
-  acp_mcp_todo <- list(
-    status = "in_progress",
-    acp = list(
-      phenotype_intent_split = "NOT_APPLICABLE_USE_COHORT_METHODS_INTENT_SPLIT",
-      cohort_methods_intent_split = cohort_methods_intent_split_status,
-      phenotype_recommendation = list(
-        target = if (length(targetCohortId) == 1) "COMPLETED" else "FALLBACK_MANUAL",
-        comparator = if (length(comparatorCohortId) == 1) "COMPLETED" else "FALLBACK_MANUAL",
-        outcome = if (length(outcomeCohortIds) > 0) "COMPLETED" else "FALLBACK_MANUAL"
-      ),
-      phenotype_recommendation_advice = list(
-        target = if (isTRUE(target_rec$used_advice)) "USED" else "NOT_USED",
-        comparator = if (isTRUE(comparator_rec$used_advice)) "USED" else "NOT_USED",
-        outcome = if (isTRUE(outcome_rec$used_advice)) "USED" else "NOT_USED"
-      ),
-      phenotype_improvements = list(
-        status = improvements_status_value,
-        target = improvements_results$target$status,
-        comparator = improvements_results$comparator$status,
-        outcome = improvements_results$outcome$status,
-        applied = isTRUE(improvements_applied),
-        auto_apply = isTRUE(autoApplyImprovements),
-        role_artifacts = list(
-          target = improvements_target_path,
-          comparator = improvements_comparator_path,
-          outcome = improvements_outcome_path
-        )
-      ),
-      cohort_methods_specifications_recommendation = "STUB_CALLED_FROM_R_SHELL"
-    ),
-    mcp = list(
-      comparator_setting_reuse = "TODO",
-      phenotype_index_search = "TODO"
-    ),
-    note = "Cohort methods uses target/comparator/outcome statements from explicit inputs, cache, or cohort_methods_intent_split before phenotype recommendation."
-  )
-  write_json(acp_mcp_todo, acp_mcp_todo_path)
-
   create_dummy_concept_set <- function(path, concept_set_id, label) {
     if (is.null(concept_set_id)) return(NULL)
     payload <- list(
@@ -5077,7 +5038,6 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     ),
     improvements_results = improvements_results,
     cm_evaluation_todo_path = cm_evaluation_todo_path,
-    acp_mcp_todo_path = acp_mcp_todo_path,
     cm_defaults_path = cm_defaults_path,
     cm_analysis_json_path = cm_analysis_json_path,
     cm_analysis_template_path = json_string_or_null(cm_analysis_template_path),
@@ -5880,7 +5840,6 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     cat("  - 05_diagnostics.R\n")
     cat("  - 06_cm_spec.R\n")
     cat("Status/TODO artifacts:\n")
-    cat(sprintf("  - %s\n", acp_mcp_todo_path))
     cat(sprintf("  - %s\n", improvements_status_path))
     cat(sprintf("  - %s\n", cm_evaluation_todo_path))
   }

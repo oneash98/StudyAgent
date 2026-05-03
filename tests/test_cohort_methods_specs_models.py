@@ -21,27 +21,24 @@ def test_input_accepts_minimal_payload() -> None:
     assert payload.analytic_settings_description == "compare A vs B"
     assert payload.study_intent == ""
     assert payload.study_description is None
-    assert payload.target_cohort_id is None
-    assert payload.comparator_cohort_id is None
-    assert payload.outcome_cohort_ids == []
-    assert payload.comparison_label is None
-    assert payload.defaults_snapshot == {}
 
 
-def test_input_accepts_full_shell_body() -> None:
+def test_input_accepts_full_wrapper_body() -> None:
     payload = CohortMethodSpecsRecommendationInput(
         analytic_settings_description="365-day washout, 1:1 PS match, Cox",
         study_description="365-day washout, 1:1 PS match, Cox",
         study_intent="CV outcomes comparative effectiveness",
-        target_cohort_id=1001,
-        comparator_cohort_id=1002,
-        outcome_cohort_ids=[2001, 2002],
-        comparison_label="Sitagliptin vs Glipizide",
-        defaults_snapshot={"profile_name": "default", "input_method": "typed_text"},
     )
-    assert payload.target_cohort_id == 1001
-    assert payload.outcome_cohort_ids == [2001, 2002]
-    assert payload.defaults_snapshot["input_method"] == "typed_text"
+    assert payload.study_intent == "CV outcomes comparative effectiveness"
+    assert payload.study_description == "365-day washout, 1:1 PS match, Cox"
+
+
+def test_input_rejects_cohort_metadata_fields() -> None:
+    with pytest.raises(Exception):
+        CohortMethodSpecsRecommendationInput(
+            analytic_settings_description="365-day washout",
+            target_cohort_id=1001,
+        )  # type: ignore[call-arg]
 
 
 def test_output_defaults() -> None:

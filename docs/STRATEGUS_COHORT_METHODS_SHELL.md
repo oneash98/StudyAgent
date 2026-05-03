@@ -1,36 +1,19 @@
-# Strategus Cohort Methods Shell (Stage 1)
+# Strategus Cohort Methods Shell
 
 Current stage scope:
 
 - Cohort methods shell with ACP-assisted intent split and phenotype recommendation.
 - The shell can derive target/comparator/outcome statements from a study intent.
-- The shell writes reproducible R script scaffolds for later CohortMethod execution.
+- The shell can configure one effective analytic-settings profile through `step_by_step` prompts or `free_text` ACP recommendation.
+- The shell writes reproducible R scripts, a Strategus analysis specification, and a merged CohortMethod execution script.
 
 This shell is provided as `OHDSIAssistant::runStrategusCohortMethodsShell()`.
 
 ## Running
 
-```r
-OHDSIAssistant::runStrategusCohortMethodsShell(
-  outputDir = "demo-strategus-cohort-methods",
-  studyIntent = "Compare metformin versus sulfonylurea on GI bleed outcomes.",
-  targetCohortId = 12345,
-  comparatorCohortId = 23456,
-  outcomeCohortIds = c(34567, 45678),
-  comparisonLabel = "metformin_vs_sulfonylurea"
-)
-```
+Usage examples for `OHDSIAssistant::runStrategusCohortMethodsShell()` live in the R package README: `R/OHDSIAssistant/README.md`.
 
-If you only want to exercise the analytic-settings flow with stable demo inputs, use:
-
-```r
-OHDSIAssistant::runStrategusCohortMethodAnalyticSettingsTest(
-  outputDir = "demo-strategus-cohort-methods-analytic-settings"
-)
-```
-
-This helper skips the target/comparator/outcome selection prompts and writes only
-analytic-settings-focused artifacts under `outputDir/outputs/`.
+Workflow diagrams live in `docs/COHORT_METHODS_WORKFLOW.md`.
 
 ## Current Stage Flow
 
@@ -44,150 +27,27 @@ analytic-settings-focused artifacts under `outputDir/outputs/`.
 4. Optional cohort ID remap step to avoid collisions (`remapCohortIds`).
 5. Copy cohort JSON definitions from `indexDir/definitions` into selected cohort folders.
 6. Optional negative control and covariate concept-set IDs are captured as placeholders.
-7. Configure one analytic-settings profile interactively:
-   - Analytic settings are always collected in this stage.
-   - Choose one mode first:
-     - `step_by_step`
-     - `free_text`
-   - `step_by_step` currently walks through:
-     - Study population settings
-     - Time-at-risk settings
-     - Propensity score adjustment settings
-     - Outcome model settings
-   - In `step_by_step`, the shell asks each category in order, asks for the core setting(s)
-     first, then shows a `keep the defaults or choose each option yourself` prompt followed by the current
-     default values for the remaining supported sub-settings.
-   - After the profile name is entered, the shell prints the final resolved analytic settings once
-     more for review.
-   - The analytic-settings profile name is prompted after all four sections are complete.
-   - `free_text` first uses `analyticSettingsDescription` when provided.
-   - If that is absent, it next uses `analyticSettingsDescriptionPath` when provided.
-   - If neither is provided, the shell asks the user to type the description interactively.
-   - `free_text` also writes a dummy recommendation artifact and requires confirmation before finalizing the cached state.
-8. Write comparison metadata and TODO artifacts.
-9. Generate scripts in `scripts/` for cohort generation, keeper review, diagnostics, CM spec, and CM run.
+7. Configure one analytic-settings profile through `step_by_step`, `free_text`, or cached/function-argument inputs.
+   Analytic settings are always collected in this stage and confirmed before finalization.
+8. Generate scripts in `scripts/` for cohort generation, keeper review, diagnostics, and
+   CohortMethod spec/execution.
 
 ## Analytic Settings
 
-The cohort methods shell now prompts for a single effective analytic-settings profile. This remains
-prompt/cache-driven only; there is no public analytic-settings function argument added in this
-stage.
+The cohort methods shell now resolves a single effective analytic-settings profile. This remains
+prompt/cache/free-text-driven only; there is no public function argument that accepts a complete
+analytic-settings object in this stage.
 
 Supported configuration modes:
 
 - `step_by_step`
 - `free_text`
 
-Current `step_by_step` section flow:
+At a high level:
 
-- `study_population`
-- `time_at_risk`
-- `propensity_score_adjustment`
-- `outcome_model`
-
-User-facing `step_by_step` prompts now follow the ATLAS section grouping, but keep the previously
-agreed shell interaction pattern:
-
-- ask only the section's core settings directly
-- then offer a keep-defaults step for the remaining hidden/default settings
-- if the user declines defaults, ask each remaining exposed setting one by one
-- show short setting names only in default summaries and final summaries
-- show detailed per-setting descriptions only in the one-by-one customization path
-
-Exception for propensity score adjustment:
-
-- first ask the strategy: `match_on_ps`, `stratify_by_ps`, or `none`
-- if `match_on_ps`, ask only `maxRatio`
-- if `stratify_by_ps`, ask only `numberOfStrata`
-- after that, show the remaining PS defaults and ask whether to keep them
-- if the user declines defaults, ask the exposed remaining PS settings one by one
-- exposed PS trimming settings in that remaining-defaults path:
-  `trimmingStrategy` with `none`, `by_percent`, or `by_equipoise`
-- if trimming is customized to `by_percent`, the shell asks for the trimming percent
-- if trimming is customized to `by_equipoise`, the shell asks for the lower and upper
-  equipoise bounds
-- match defaults currently exposed in that remaining-defaults path:
-  `maxCohortSizeForFitting`, `errorOnHighCorrelation`, `useRegularization`, `caliper`,
-  `caliperScale`
-- stratify defaults currently exposed in that remaining-defaults path:
-  `maxCohortSizeForFitting`, `errorOnHighCorrelation`, `useRegularization`, `baseSelection`
-- hidden internal defaults such as `create_ps.estimator` still remain persisted but are not
-  directly prompted
-
-Internally, the persisted JSON still uses the existing `CohortMethod`-aligned field names.
-
-Current execution defaults and persisted artifacts use the following effective analytic-settings fields:
-
-- `profile_name`
-- Study population
-  - `studyStartDate`
-  - `studyEndDate`
-  - `maxCohortSize`
-  - `firstExposureOnly`
-  - `washoutPeriod`
-  - `restrictToCommonPeriod`
-  - `removeDuplicateSubjects`
-  - `censorAtNewRiskWindow`
-  - `removeSubjectsWithPriorOutcome`
-  - `priorOutcomeLookback`
-- Covariate settings
-  - current default covariate behavior
-  - include-all state
-  - include concept-set selection
-  - exclude concept-set selection
-- Time-at-risk
-  - `minDaysAtRisk`
-  - `riskWindowStart`
-  - `startAnchor`
-  - `riskWindowEnd`
-  - `endAnchor`
-- Propensity score adjustment
-  - `strategy`
-  - `trimmingStrategy`
-  - `trimmingPercent`
-  - `equipoiseLowerBound`
-  - `equipoiseUpperBound`
-  - `estimator`
-  - `maxCohortSizeForFitting`
-  - `errorOnHighCorrelation`
-  - `useRegularization`
-  - matching: `caliper`, `caliperScale`, `maxRatio`
-  - stratification: `numberOfStrata`, `baseSelection`
-- Outcome model
-  - `modelType`
-  - `stratified`
-  - `useCovariates`
-  - `inversePtWeighting`
-  - `useRegularization`
-
-For the currently supported hidden sub-settings, the shell displays the actual OHDSI /
-CohortMethod defaults as values only when offering to keep defaults, using short setting names
-instead of prompt-length explanatory text. If the user chooses to customize the remaining settings,
-the shell now asks each exposed remaining setting individually and shows its detailed description at
-that point. Hidden internal fields such as `create_ps.estimator` and extraction-level duplicate
-handling remain persisted but are still not asked directly in the current prompt flow.
-
-Important current default behavior:
-
-- Matching defaults now follow CohortMethod defaults, including `maxRatio = 1`,
-  `caliper = 0.2`, and `caliperScale = "standardized logit"`.
-- PS fitting defaults currently exposed in the shell include:
-  - `maxCohortSizeForFitting = 250000`
-  - `errorOnHighCorrelation = FALSE`
-  - `useRegularization = TRUE`
-- PS trimming defaults currently exposed in the shell include:
-  - `trimmingStrategy = none`
-  - `trimmingPercent = 5`
-  - `equipoise bounds = c(0.25, 0.75)`
-- Time-at-risk defaults now follow CohortMethod defaults, including `riskWindowStart = 0`
-  and `censorAtNewRiskWindow = FALSE`.
-- Outcome-model defaults are partially dynamic:
-  - `stratified = FALSE` for no PS adjustment
-  - `stratified = FALSE` for one-to-one matching (`maxRatio = 1`)
-  - `stratified = TRUE` for variable-ratio matching and PS stratification
-  - `useCovariates = FALSE`
-  - `inversePtWeighting = FALSE`
-  - `useRegularization = TRUE`
+- `step_by_step` covers study population, time-at-risk, propensity score adjustment, and outcome model settings.
+- `free_text` uses an ACP recommendation when available and falls back to a local stub if ACP is unavailable.
+- Persisted JSON keeps the existing `CohortMethod`-aligned field names.
 
 The effective selected profile is written to `outputs/cm_analysis_defaults.json`, which retains
 profile metadata such as `profile_name`, `source`, and `customized_sections`. The generated
@@ -199,10 +59,15 @@ For traceability:
 - `outputs/manual_inputs.json` stores the effective `analytic_settings` block plus the
   `customized_sections` array, the selected analytic-settings mode, and any free-text metadata.
 - `outputs/cm_analytic_settings_recommendation.json` is written only for `free_text` mode in the
-  current stage. It is a dummy recommendation artifact for review/confirmation and is not the
-  execution defaults file.
+  current stage. It stores the shell-facing recommendation derived from the ACP response or, if ACP
+  is unavailable, from the local fallback.
+- `outputs/cm_acp_specifications_recommendation.json` is written for `free_text` mode and stores
+  the ACP flow request/response wrapper used to derive the shell-facing recommendation.
 - `outputs/study_agent_state.json` echoes `analytic_settings_profile_name` and
   `analytic_settings_customized_sections`, plus analytic-settings mode / confirmation summary.
+- `analysis-settings/cmAnalysis.json` stores the template-shaped CohortMethod-oriented contract
+  artifact. The generated `06_cm_spec.R` currently still reads `outputs/cm_analysis_defaults.json`
+  as its execution settings source.
 
 ## Output Layout
 
@@ -218,6 +83,7 @@ The following directories are created under `outputDir`:
 - `patched-comparator-cohorts/`
 - `patched-outcome-cohorts/`
 - `keeper-case-review/`
+- `concept-sets/`
 - `analysis-settings/`
 - `scripts/`
 - `cm-results/`
@@ -231,8 +97,13 @@ The following directories are created under `outputDir`:
 - `cohort_methods_intent_split.json`
 - `cohort_id_map.json`
 - `cohort_roles.json`
+- `recommendations_target.json`
+- `recommendations_comparator.json`
+- `recommendations_outcome.json`
+- `recommendations_outcome_<n>.json` (when multiple outcome statements are recommended separately)
 - `cm_comparisons.json`
 - `cm_analysis_defaults.json`
+- `cm_acp_specifications_recommendation.json` (free-text mode only)
 - `cm_analytic_settings_recommendation.json` (free-text mode only)
 - `cm_concept_set_selections.json`
 - `improvements_target.json`
@@ -240,7 +111,7 @@ The following directories are created under `outputDir`:
 - `improvements_outcome.json`
 - `improvements_status.json`
 - `cm_evaluation_todo.json`
-- `acp_mcp_todo.json`
+- `cm_analysis_state.json` (written by `scripts/06_cm_spec.R`)
 - `study_agent_state.json`
 
 `cm_analysis_defaults.json` stores the effective analytic-settings profile used by the generated
@@ -255,7 +126,9 @@ the CohortMethod module settings:
 - `getDbCohortMethodDataArgs`
 - `createStudyPopulationArgs`
 - `createPsArgs`
+- `trimByPsArgs`
 - `matchOnPsArgs`
+- `stratifyByPsArgs`
 - `fitOutcomeModelArgs`
 
 It also writes `analysis-settings/analysisSpecification.json`, a Strategus specification containing:
@@ -265,9 +138,15 @@ It also writes `analysis-settings/analysisSpecification.json`, a Strategus speci
 - `CohortIncidenceModule`
 - `CohortMethodModule`
 
-The generated Strategus specification intentionally omits `CohortGeneratorModule` and
-`CohortDiagnosticsModule` because cohort generation and diagnostics are handled by
-`03_generate_cohorts.R` and `05_diagnostics.R`.
+The generated script uses `CohortGeneratorModule$new()` only to create the shared cohort-definition
+resource. The generated Strategus specification intentionally does not add a cohort-generation module
+specification or a `CohortDiagnosticsModule` specification because cohort generation and diagnostics
+are handled by `03_generate_cohorts.R` and `05_diagnostics.R`.
+
+`scripts/06_cm_spec.R` also writes:
+
+- `outputs/cm_analysis_state.json`
+- `analysis-settings/strategus_execute_result.rds`
 
 The same `06_cm_spec.R` script then executes the just-created specification with
 `Strategus::execute()`. There is no separate `07_cm_run_analyses.R` in the merged Strategus
@@ -304,10 +183,13 @@ The scripts still contain placeholders for values that are not captured in those
   - negative control cohort-definition logic
   - positive control synthesis
   - empirical calibration configuration
-  - minimum days at risk
-  - PS trimming
-  - IPTW execution branches
   - detailed covariate feature-group selection beyond the current default-plus-include/exclude model
+- TODO: implement ACP/MCP support for negative control and covariate concept-set workflows, then
+  update the shell to use those tools instead of writing dummy placeholder concept-set artifacts.
+- Atlas / CohortMethod settings partially supported but still needing broader validation:
+  - `minDaysAtRisk`
+  - PS trimming (`none`, percent trimming, and equipoise bounds)
+  - `inversePtWeighting` passed through to `fitOutcomeModelArgs`
 - Evaluation settings from section 12.7.3 remain deferred as well.
 - Multiple analytic-settings profiles, multi-comparison support, and broader CohortMethod branching
   remain for a later stage.
@@ -315,5 +197,54 @@ The scripts still contain placeholders for values that are not captured in those
 
 ## Notes
 
-- This stage is designed as a bridge: it provides structured inputs and reproducible
-  script generation before ACP/MCP-assisted recommendations and improvement loops are connected.
+- This stage is designed as a bridge: it combines ACP/MCP-assisted intent split, phenotype
+  recommendation/improvement, and analytic-settings recommendation with reproducible Strategus
+  script generation.
+
+## Analytic Settings Prompt Details
+
+Current `step_by_step` section flow:
+
+- `study_population`
+- `time_at_risk`
+- `propensity_score_adjustment`
+- `outcome_model`
+
+User-facing `step_by_step` prompts follow the ATLAS section grouping:
+
+- ask only the section's core settings directly
+- then offer a keep-defaults step for the remaining hidden/default settings
+- if the user declines defaults, ask each remaining exposed setting one by one
+- show short setting names only in default summaries and final summaries
+- show detailed per-setting descriptions only in the one-by-one customization path
+
+Exception for propensity score adjustment:
+
+- first ask the strategy: `match_on_ps`, `stratify_by_ps`, or `none`
+- if `match_on_ps`, ask only `maxRatio`
+- if `stratify_by_ps`, ask only `numberOfStrata`
+- after that, show the remaining PS defaults and ask whether to keep them
+- if the user declines defaults, ask the exposed remaining PS settings one by one
+- exposed PS trimming settings in that remaining-defaults path: `trimmingStrategy` with `none`, `by_percent`, or `by_equipoise`
+- if trimming is customized to `by_percent`, the shell asks for the trimming percent
+- if trimming is customized to `by_equipoise`, the shell asks for the lower and upper equipoise bounds
+- match defaults currently exposed in that remaining-defaults path: `maxCohortSizeForFitting`, `errorOnHighCorrelation`, `useRegularization`, `caliper`, `caliperScale`
+- stratify defaults currently exposed in that remaining-defaults path: `maxCohortSizeForFitting`, `errorOnHighCorrelation`, `useRegularization`, `baseSelection`
+- hidden internal defaults such as `create_ps.estimator` still remain persisted but are not directly prompted
+
+Current execution defaults and persisted artifacts use these effective analytic-settings fields:
+
+- `profile_name`
+- Study population: `studyStartDate`, `studyEndDate`, `maxCohortSize`, `firstExposureOnly`, `washoutPeriod`, `restrictToCommonPeriod`, `removeDuplicateSubjects`, `censorAtNewRiskWindow`, `removeSubjectsWithPriorOutcome`, `priorOutcomeLookback`
+- Covariate settings: current default covariate behavior, include-all state, include concept-set selection, exclude concept-set selection
+- Time-at-risk: `minDaysAtRisk`, `riskWindowStart`, `startAnchor`, `riskWindowEnd`, `endAnchor`
+- Propensity score adjustment: `strategy`, `trimmingStrategy`, `trimmingPercent`, `equipoiseLowerBound`, `equipoiseUpperBound`, `estimator`, `maxCohortSizeForFitting`, `errorOnHighCorrelation`, `useRegularization`, matching `caliper`, matching `caliperScale`, matching `maxRatio`, stratification `numberOfStrata`, stratification `baseSelection`
+- Outcome model: `modelType`, `stratified`, `useCovariates`, `inversePtWeighting`, `useRegularization`
+
+Important current default behavior:
+
+- Matching defaults follow CohortMethod defaults, including `maxRatio = 1`, `caliper = 0.2`, and `caliperScale = "standardized logit"`.
+- PS fitting defaults exposed in the shell include `maxCohortSizeForFitting = 250000`, `errorOnHighCorrelation = FALSE`, and `useRegularization = TRUE`.
+- PS trimming defaults exposed in the shell include `trimmingStrategy = none`, `trimmingPercent = 5`, and equipoise bounds `c(0.25, 0.75)`.
+- Time-at-risk defaults follow CohortMethod defaults, including `riskWindowStart = 0` and `censorAtNewRiskWindow = FALSE`.
+- Outcome-model defaults are partially dynamic: `stratified = FALSE` for no PS adjustment or one-to-one matching, `stratified = TRUE` for variable-ratio matching and PS stratification, `useCovariates = FALSE`, `inversePtWeighting = FALSE`, and `useRegularization = TRUE`.

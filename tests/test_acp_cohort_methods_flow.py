@@ -81,11 +81,6 @@ def test_happy_path_returns_shell_shape() -> None:
     agent = _build_agent_with_mocks(_make_bundle_payload(), _make_llm_result(_valid_llm_payload(defaults)))
     result = agent.run_cohort_methods_specs_recommendation_flow(
         analytic_settings_description="compare A vs B with 1-year washout",
-        target_cohort_id=1,
-        comparator_cohort_id=2,
-        outcome_cohort_ids=[3],
-        comparison_label="A vs B",
-        defaults_snapshot={"profile_name": "snapshot", "input_method": "typed_text"},
     )
     assert result["status"] == "ok"
     rec = result["recommendation"]
@@ -95,13 +90,12 @@ def test_happy_path_returns_shell_shape() -> None:
     assert rec["profile_name"] == "Example"
     assert rec["raw_description"] == "compare A vs B with 1-year washout"
     assert rec["study_population"]["cohortMethodDataArgs"]["washoutPeriod"] == 365
-    assert rec["defaults_snapshot"]["profile_name"] == "snapshot"
+    assert rec["defaults_snapshot"] == {}
     assert "section_rationales" in result
     assert result["section_rationales"]["study_population"]["confidence"] == "high"
     assert result["section_rationales"]["time_at_risk"]["confidence"] == "medium"
     assert result["section_rationales"]["propensity_score_adjustment"]["confidence"] == "medium"
     assert result["section_rationales"]["outcome_model"]["confidence"] == "medium"
-    assert result["cohort_methods_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
     prompt = agent._call_llm.call_args.args[0]
     assert "<Current Analysis Specifications>" not in prompt
     assert "<Analysis Specifications Template>" in prompt
@@ -109,18 +103,15 @@ def test_happy_path_returns_shell_shape() -> None:
     assert "## Top-Level Shape" in prompt
 
 
-def test_client_cohort_ids_override_llm_drift() -> None:
+def test_llm_cohort_definitions_are_passed_through_without_request_metadata() -> None:
     defaults = _defaults_spec()
     drifted = _valid_llm_payload(defaults)
-    drifted["specifications"]["cohortDefinitions"] = {"targetCohort": {"id": 666, "name": "LLM drifted"}}
+    drifted["specifications"]["cohortDefinitions"] = {"targetCohort": {"id": 666, "name": "LLM supplied"}}
     agent = _build_agent_with_mocks(_make_bundle_payload(), _make_llm_result(drifted))
     result = agent.run_cohort_methods_specs_recommendation_flow(
         analytic_settings_description="desc",
-        target_cohort_id=1,
-        comparator_cohort_id=2,
-        outcome_cohort_ids=[3],
     )
-    assert result["cohort_methods_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
+    assert result["cohort_methods_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 666
 
 
 def test_llm_parse_error_returns_defaults_fallback() -> None:

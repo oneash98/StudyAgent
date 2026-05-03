@@ -214,27 +214,21 @@ services:
     purpose: >
       Translate a free-text description of a comparative-cohort study design into the
       4-key analytic-settings recommendation shape (`study_population`, `time_at_risk`,
-      `propensity_score_adjustment`, `outcome_model`) consumed by the cohort-methods
-      R shell, with the full cmAnalysis-shaped specification returned alongside for traceability.
+      `propensity_score_adjustment`, `outcome_model`), with the full cmAnalysis-shaped
+      specification returned alongside for traceability.
     request:
       analytic_settings_description: required string
       study_description: optional string (echo of analytic_settings_description)
       study_intent: optional string
-      target_cohort_id: optional integer
-      comparator_cohort_id: optional integer
-      outcome_cohort_ids: list of integers (default empty)
-      comparison_label: optional string
-      defaults_snapshot: optional nested dict (effective_analytic_settings)
     response:
       status: ok | llm_parse_error | schema_validation_error
       recommendation: 4-key object (study_population, time_at_risk, propensity_score_adjustment, outcome_model) plus mode/input_method/source/status/profile_name/raw_description/deferred_inputs/defaults_snapshot
       cohort_methods_specifications: full cmAnalysis-shaped specification (internal traceability)
-      section_rationales: per-shell-section { rationale, confidence }
+      section_rationales: per-section { rationale, confidence }
       diagnostics: { llm_parse_stage, schema_valid, failed_sections, latency_ms }
     pipeline:
       - mcp.cohort_methods_prompt_bundle
       - llm
       - core.validate_cohort_methods_spec (validates the cmAnalysis-shaped spec)
-      - core.merge_client_metadata (built from flat IDs)
       - core.validate_section + core.backfill_section_from_defaults
       - core.cohort_methods_spec_to_shell_recommendation

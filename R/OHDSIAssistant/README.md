@@ -64,15 +64,69 @@ It generates scripts under `demo-strategus-cohort-incidence/scripts/` following 
 5. `05_diagnostics.R`
 6. `06_incidence_spec.R`
 
-## Suggesting Cohort Method Specifications
+## Suggest Cohort Method Specifications
 
-Use this helper to derive cohort method analytic settings from a study intent and an analytic settings description.
+Use `suggestCohortMethodSpecs()` when you want ACP to turn a free-text analytic-settings description into a CohortMethod recommendation without running the full shell.
 
 ```r
-acp_connect("http://127.0.0.1:8765")
-res <- suggestCohortMethodSpecs(
-  studyIntent = "CV outcomes comparative effectiveness",
-  analyticSettingsDescription = "365-day washout, 1:1 PS match, Cox",
+OHDSIAssistant::acp_connect("http://127.0.0.1:8765")
+
+res <- OHDSIAssistant::suggestCohortMethodSpecs(
+  studyIntent = "Compare metformin versus sulfonylurea on GI bleed outcomes.",
+  analyticSettingsDescription = "Use one-to-one propensity score matching, a 365-day washout, and a Cox outcome model.",
   interactive = TRUE
 )
 ```
+
+The helper calls ACP `/flows/cohort_methods_specifications_recommendation`. When ACP is not connected, it returns a local stub with the same broad response shape.
+
+## Strategus Cohort Methods Shell
+
+Use `runStrategusCohortMethodsShell()` when you want the full cohort-methods workflow: intent split, target/comparator/outcome recommendation or explicit cohort IDs, analytic-settings collection, output artifacts, generated R scripts, and a merged `06_cm_spec.R` that builds and executes the Strategus specification.
+
+Fully interactive run:
+
+```r
+OHDSIAssistant::acp_connect("http://127.0.0.1:8765")
+
+OHDSIAssistant::runStrategusCohortMethodsShell()
+```
+
+Provide only the study intent and let the shell recommend/select target, comparator, and outcome cohorts:
+
+```r
+OHDSIAssistant::runStrategusCohortMethodsShell(
+  studyIntent = "Compare metformin versus sulfonylurea on GI bleed outcomes."
+)
+```
+
+Provide explicit cohort IDs when you already know the target, comparator, and outcome cohorts:
+
+```r
+OHDSIAssistant::acp_connect("http://127.0.0.1:8765")
+
+OHDSIAssistant::runStrategusCohortMethodsShell(
+  outputDir = "demo-strategus-cohort-methods",
+  studyIntent = "Compare metformin versus sulfonylurea on GI bleed outcomes.",
+  targetCohortId = 12345,
+  comparatorCohortId = 23456,
+  outcomeCohortIds = c(34567, 45678),
+  comparisonLabel = "metformin_vs_sulfonylurea"
+)
+```
+
+To exercise the analytic-settings flow with stable demo inputs, pass explicit target/comparator/outcome IDs and either choose `step_by_step` when prompted or provide a free-text description:
+
+```r
+OHDSIAssistant::runStrategusCohortMethodsShell(
+  outputDir = "demo-strategus-cohort-methods-analytic-settings",
+  studyIntent = "Compare metformin versus sulfonylurea on GI bleed outcomes.",
+  targetCohortId = 12345,
+  comparatorCohortId = 23456,
+  outcomeCohortIds = c(34567),
+  comparisonLabel = "metformin_vs_sulfonylurea",
+  analyticSettingsDescription = "Use one-to-one propensity score matching and a Cox outcome model."
+)
+```
+
+The shell writes outputs under `outputDir`, including `outputs/cm_analysis_defaults.json`, `outputs/cm_acp_specifications_recommendation.json` for free-text mode, `analysis-settings/cmAnalysis.json`, `analysis-settings/analysisSpecification.json`, and scripts under `scripts/`.

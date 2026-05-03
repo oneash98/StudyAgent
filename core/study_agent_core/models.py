@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConceptSetDiffInput(BaseModel):
@@ -274,14 +274,11 @@ class CaseCausalReviewOutput(BaseModel):
 
 
 class CohortMethodSpecsRecommendationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     analytic_settings_description: str
     study_intent: Optional[str] = ""
     study_description: Optional[str] = None
-    target_cohort_id: Optional[int] = None
-    comparator_cohort_id: Optional[int] = None
-    outcome_cohort_ids: List[int] = Field(default_factory=list)
-    comparison_label: Optional[str] = None
-    defaults_snapshot: Dict[str, Any] = Field(default_factory=dict)
     llm_result: Optional[Dict[str, Any]] = None
 
 
