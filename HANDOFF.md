@@ -179,7 +179,6 @@
   - `04_keeper_review.R`
   - `05_diagnostics.R`
   - `06_cm_spec.R`
-  - `07_cm_run_analyses.R`
 - Cohort/concept-set validation, cache/resume behavior, repeated outcome ID entry, and placeholder concept-set capture remain in place.
 - Cohort methods intent split is now active in the shell:
   - It writes/reads `outputs/cohort_methods_intent_split.json`.
@@ -349,9 +348,11 @@
   - it matches the requested section grouping and prompt order
   - it still exposes only the agreed subset of settings
 - The shell now persists a template-shaped `analysis-settings/cmAnalysis.json` artifact, while
-  `outputs/cm_analysis_defaults.json` remains in place for current generated-script compatibility.
-- `06_cm_spec.R` still reads `outputs/cm_analysis_defaults.json`; it has not yet been switched
-  to consume `analysis-settings/cmAnalysis.json` directly.
+  `outputs/cm_analysis_defaults.json` remains the effective settings snapshot used by generated
+  Strategus script projection.
+- `06_cm_spec.R` now writes `analysis-settings/analysisSpecification.json` with shared cohort
+  definitions plus Characterization, CohortIncidence, and CohortMethod module specifications, then
+  executes it with `Strategus::execute()`.
 - ACP/MCP prompt-bundle calls can still be sensitive to the running ACP/MCP process version/state.
   If `/flows/cohort_methods_intent_split` returns `not_found` or `cohort_methods_intent_split_prompt_failed`,
   restart ACP/MCP from the current workspace before debugging the R shell.
@@ -378,7 +379,7 @@
 - Add ACP integration for comparator setting if that is still desired.
 - Replace dummy recommendation generation with real recommendation parsing/mapping from ACP output.
 - Decide and implement the final ACP response schema for cohort method specifications.
-- Decide whether the generated `06_cm_spec.R` should continue reading `cm_analysis_defaults.json` directly or instead consume a more explicit analytic-settings JSON contract.
+- Decide whether the generated `06_cm_spec.R` should continue projecting from `cm_analysis_defaults.json` or instead consume a more explicit analytic-settings JSON contract directly.
 - Decide whether covariate settings should stay outside the required step-by-step section flow or be folded back in later.
 - Add broader regression coverage for:
   - interactive multi-outcome statement confirmation UX

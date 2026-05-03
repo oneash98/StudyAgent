@@ -238,7 +238,7 @@ conditional field 규칙은 아래처럼 정리되어 있다.
 - `createPsArgs = null` only when both PS adjustment and PS trimming are `none`
 - regularization controls are expanded into `prior` / `control`, or `null` when disabled
 
-단, generated `06_cm_spec.R`는 아직 `analysis-settings/cmAnalysis.json`을 직접 읽지 않고 `outputs/cm_analysis_defaults.json`를 사용한다.
+단, generated `06_cm_spec.R`는 아직 `analysis-settings/cmAnalysis.json`을 직접 읽지 않고 `outputs/cm_analysis_defaults.json`와 comparison artifact를 Strategus `analysisSpecification.json`으로 project한다.
 
 
 ### 3.10 generated script
@@ -249,9 +249,8 @@ generated script는 현재 아래 파일들을 만든다.
 - `04_keeper_review.R`
 - `05_diagnostics.R`
 - `06_cm_spec.R`
-- `07_cm_run_analyses.R`
 
-`06_cm_spec.R` 생성은 expanded analytic defaults를 반영한다.
+`06_cm_spec.R` 생성은 expanded analytic defaults를 반영해 Strategus analysis specification을 만든 뒤 바로 `Strategus::execute()`로 실행한다.
 
 - `studyStartDate` / `studyEndDate`를 `createGetDbCohortMethodDataArgs()`에 전달
 - PS strategy가 `none`이면 `createPsArgs = NULL`
@@ -368,11 +367,11 @@ cohort methods recommendation/cache 흐름은 incidence shell을 참고했지만
 
 ### 5.9 generated spec의 settings source 정리
 
-현재 `analysis-settings/cmAnalysis.json`은 생성되지만 `06_cm_spec.R`는 여전히 `outputs/cm_analysis_defaults.json`를 읽는다.
+현재 `analysis-settings/cmAnalysis.json`은 생성되지만 `06_cm_spec.R`는 여전히 `outputs/cm_analysis_defaults.json`를 주요 settings source로 읽는다.
 
 앞으로 결정해야 한다.
 
-- `06_cm_spec.R`가 계속 `cm_analysis_defaults.json`를 읽을지
+- `06_cm_spec.R`가 계속 `cm_analysis_defaults.json`에서 Strategus spec을 project할지
 - 더 명시적인 `analysis-settings/cmAnalysis.json` contract를 직접 소비하게 바꿀지
 - 두 artifact의 책임을 어떻게 나눌지
 
@@ -432,4 +431,4 @@ cohort methods recommendation/cache 흐름은 incidence shell을 참고했지만
 2. cohort methods intent split prompt hardening 및 structured-output 검토
 3. `/flows/cohort_methods_specifications_recommendation` 실제 ACP/MCP 구현
 4. full shell `step_by_step`, multi-outcome, cache/resume regression coverage 보강
-5. `06_cm_spec.R`가 `cmAnalysis.json`을 직접 소비할지 결정
+5. `06_cm_spec.R`의 최종 settings source를 `cm_analysis_defaults.json` projection으로 둘지 `cmAnalysis.json` 직접 소비로 바꿀지 결정

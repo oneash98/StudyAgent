@@ -25,7 +25,10 @@ The contract is fixed by what the R wrapper sends and what the cohort-methods sh
 
 1. No replacement of the cohort-methods `cohort_methods_intent_split` flow — that already lives in `main` and is upstream of this flow.
 2. No interactive `step_by_step` ACP path. The cohort-methods shell only calls ACP from the `free_text` branch; that is the only path this flow needs to serve.
-3. No generation of Strategus R execution code from the recommendation. `06_cm_spec.R` continues to read `cm_analysis_defaults.json`. Wiring `cmAnalysis.json` into the generated script is STATUS_KO §5.9 work and is out of scope here.
+3. No direct generation of Strategus R execution code from the ACP recommendation. The shell-side
+   `06_cm_spec.R` generator now projects the shell's effective settings and comparison artifacts into
+   a Strategus `analysisSpecification.json`; direct consumption of the ACP recommendation artifact
+   remains out of scope for this flow.
 4. No PHI/Keeper sanitization step. Inputs are user-authored free-text plus optional cohort/concept-set IDs for non-wrapper clients — same judgment as `phenotype_recommendation`.
 
 ## 4. Data Flow
@@ -312,9 +315,9 @@ With MCP, ACP, and Ollama all running, and with the cohort-methods shell `acp_co
 2. Shell calls `suggestCohortMethodSpecs(..., interactive = FALSE)`, which posts the §5.1 body to ACP.
 3. Endpoint returns `{ status, recommendation, cohort_methods_specifications, section_rationales, diagnostics }`.
 4. Shell reads `response$recommendation`, writes the full response to `outputs/cm_acp_specifications_recommendation.json`, and writes `recommendation` itself to `outputs/cm_analytic_settings_recommendation.json`.
-5. Shell uses `recommendation$profile_name` to update the `effective_analytic_settings` profile name. The other four section keys (`study_population`, …, `outcome_model`) are persisted to JSON but **not** merged into `effective_analytic_settings`. Generated `06_cm_spec.R` continues to read `cm_analysis_defaults.json`.
+5. Shell uses `recommendation$profile_name` to update the `effective_analytic_settings` profile name. The other four section keys (`study_population`, …, `outcome_model`) are persisted to JSON but **not** merged into `effective_analytic_settings`. Generated `06_cm_spec.R` projects the effective defaults plus comparison artifacts into Strategus module specifications.
 
-**What this change buys, end-to-end:** the flow runs against a real LLM, produces a structured, validated, defaults-backfilled recommendation, and the cohort-methods shell completes the run with provenance recorded. **What it does not buy:** the recommendation flowing into the generated Strategus script. That requires §5.9 (downstream consumption of `cmAnalysis.json` or `cm_analytic_settings_recommendation.json` by `06_cm_spec.R`), which is shell-side work and out of scope here.
+**What this change buys, end-to-end:** the flow runs against a real LLM, produces a structured, validated, defaults-backfilled recommendation, and the cohort-methods shell completes the run with provenance recorded. **What it does not buy:** direct consumption of `cm_analytic_settings_recommendation.json` as the execution contract; that remains shell-side work.
 
 ## 12. Test Strategy
 
@@ -335,5 +338,5 @@ Tracked separately in `STRATEGUS_COHORT_METHODS_STATUS_KO.md`:
 - §5.5 incidence cache path resolution (shell-side; partially landed).
 - §5.6 negative control / covariate concept set real import (cross-cutting MCP + shell).
 - §5.8 incidence-shell structural alignment (shell-side refactor).
-- §5.9 generated `06_cm_spec.R` consuming `cmAnalysis.json` directly (shell-side; downstream of this flow).
+- §5.9 finalizing whether generated `06_cm_spec.R` should consume `cmAnalysis.json` directly or continue projecting from the effective shell defaults.
 - §5.10 broader regression coverage (cross-cutting).

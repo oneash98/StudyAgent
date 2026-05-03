@@ -190,8 +190,9 @@ Important current default behavior:
   - `useRegularization = TRUE`
 
 The effective selected profile is written to `outputs/cm_analysis_defaults.json`, which retains
-profile metadata such as `profile_name`, `source`, and `customized_sections` and remains the
-canonical analytic-settings artifact consumed by `scripts/06_cm_spec.R`.
+profile metadata such as `profile_name`, `source`, and `customized_sections`. The generated
+`scripts/06_cm_spec.R` combines those defaults with `outputs/cm_comparisons.json` and the selected
+cohort definitions to create a Strategus analysis specification.
 
 For traceability:
 
@@ -242,19 +243,35 @@ The following directories are created under `outputDir`:
 - `acp_mcp_todo.json`
 - `study_agent_state.json`
 
-`cm_analysis_defaults.json` stores the canonical effective analytic-settings profile used by the
-generated `06_cm_spec.R`.
+`cm_analysis_defaults.json` stores the effective analytic-settings profile used by the generated
+`06_cm_spec.R` when projecting shell settings into Strategus module specifications.
 
 `manual_inputs.json` is the cache/resume-friendly shell artifact for the same run. It includes the
 effective `analytic_settings` object plus `customized_sections`.
 
-`06_cm_spec.R` reads the expanded analytic-settings schema and uses it directly when constructing:
+`06_cm_spec.R` reads the expanded analytic-settings schema and uses it directly when constructing
+the CohortMethod module settings:
 
 - `getDbCohortMethodDataArgs`
 - `createStudyPopulationArgs`
 - `createPsArgs`
 - `matchOnPsArgs`
 - `fitOutcomeModelArgs`
+
+It also writes `analysis-settings/analysisSpecification.json`, a Strategus specification containing:
+
+- a shared cohort-definition resource
+- `CharacterizationModule`
+- `CohortIncidenceModule`
+- `CohortMethodModule`
+
+The generated Strategus specification intentionally omits `CohortGeneratorModule` and
+`CohortDiagnosticsModule` because cohort generation and diagnostics are handled by
+`03_generate_cohorts.R` and `05_diagnostics.R`.
+
+The same `06_cm_spec.R` script then executes the just-created specification with
+`Strategus::execute()`. There is no separate `07_cm_run_analyses.R` in the merged Strategus
+CohortMethod flow.
 
 ## Generated Scripts
 
@@ -263,11 +280,15 @@ effective `analytic_settings` object plus `customized_sections`.
 - `scripts/04_keeper_review.R`
 - `scripts/05_diagnostics.R`
 - `scripts/06_cm_spec.R`
-- `scripts/07_cm_run_analyses.R`
 
-Each script is generated as a runnable scaffold and contains placeholders (for example
-`<FILL IN>`) where site-specific settings are required, especially connection and
-execution details.
+Generated scripts that connect to the database expect these site-specific files at the root of
+`outputDir`:
+
+- `strategus-db-details.json`
+- `strategus-execution-settings.json`
+
+The scripts still contain placeholders for values that are not captured in those files yet, such as
+`databaseId` for Keeper/export steps.
 
 ## Current Boundaries
 
