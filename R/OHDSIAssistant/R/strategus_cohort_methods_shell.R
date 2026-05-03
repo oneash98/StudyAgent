@@ -1,6 +1,6 @@
 #' Interactive shell to generate Strategus CohortMethod scripts
 #' @param outputDir directory where scripts and artifacts will be written
-#' @param acpUrl ACP base URL for placeholder cohort-method recommendation calls
+#' @param acpUrl ACP base URL for cohort-method recommendation calls
 #' @param studyIntent study intent text
 #' @param targetStatement optional explicit target cohort statement used for phenotype recommendation
 #' @param comparatorStatement optional explicit comparator cohort statement used for phenotype recommendation
@@ -716,6 +716,84 @@
       cat(sprintf("  - %s: %s\n", label, value))
     }
   }
+}
+
+.studyAgentValueForReviewFile <- function(value) {
+  if (is.null(value) || length(value) == 0 || all(is.na(value))) return("")
+  if (is.logical(value) && length(value) == 1) return(if (isTRUE(value)) "true" else "false")
+  if (length(value) == 1) return(as.character(value))
+  paste(as.character(value), collapse = ", ")
+}
+
+.studyAgentCoerceReviewValue <- function(value, current_value) {
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+  value <- trimws(as.character(value %||% ""))
+  if (!nzchar(value)) {
+    if (is.character(current_value) && length(current_value) == 1 && !nzchar(trimws(current_value))) return("")
+    if (length(current_value) == 0 || all(is.na(current_value))) return(NA)
+  }
+  if (is.logical(current_value) && length(current_value) == 1) {
+    normalized <- tolower(value)
+    if (normalized %in% c("true", "t", "yes", "y", "1")) return(TRUE)
+    if (normalized %in% c("false", "f", "no", "n", "0")) return(FALSE)
+    return(value)
+  }
+  if (is.integer(current_value) && length(current_value) == 1) {
+    return(suppressWarnings(as.integer(value)))
+  }
+  if (is.numeric(current_value) && length(current_value) == 1) {
+    return(suppressWarnings(as.numeric(value)))
+  }
+  value
+}
+
+.studyAgentWriteAnalyticSettingsReviewFile <- function(settings, section_paths, path) {
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+  section_titles <- .studyAgentAnalyticSettingsSectionTitles()
+  lines <- c(
+    "# Edit values after ':' only. Save this file, close the editor, then return to the R shell.",
+    "# Blank study dates are allowed. Boolean values accept true/false.",
+    "",
+    sprintf("profile_name: %s", .studyAgentValueForReviewFile(settings$profile_name)),
+    ""
+  )
+  for (section_name in names(section_paths)) {
+    title <- section_titles[[section_name]] %||% section_name
+    lines <- c(lines, sprintf("[%s]", title))
+    for (path_key in .studyAgentSummaryPathsForSection(section_name, section_paths, settings)) {
+      lines <- c(lines, sprintf(
+        "%s: %s",
+        path_key,
+        .studyAgentValueForReviewFile(.studyAgentGetNestedValue(settings, path_key))
+      ))
+    }
+    lines <- c(lines, "")
+  }
+  writeLines(lines, con = path, useBytes = TRUE)
+  invisible(path)
+}
+
+.studyAgentReadAnalyticSettingsReviewFile <- function(path, settings) {
+  lines <- readLines(path, warn = FALSE)
+  updated <- settings
+  for (line in lines) {
+    stripped <- trimws(line)
+    if (!nzchar(stripped) || startsWith(stripped, "#") || grepl("^\\[[^]]+\\]$", stripped)) next
+    if (!grepl(":", stripped, fixed = TRUE)) next
+    key <- trimws(sub(":.*$", "", stripped))
+    value <- trimws(sub("^[^:]*:", "", stripped))
+    if (identical(key, "profile_name")) {
+      updated$profile_name <- value
+      next
+    }
+    current_value <- .studyAgentGetNestedValue(updated, key)
+    updated <- .studyAgentSetNestedValue(
+      updated,
+      key,
+      .studyAgentCoerceReviewValue(value, current_value)
+    )
+  }
+  updated
 }
 
 .studyAgentDefaultCohortMethodAnalyticSettings <- function(covariate_enabled = FALSE) {
@@ -1452,7 +1530,6 @@
       default = as.character(working$profile_name %||% default_settings$profile_name),
       allow_blank = FALSE
     )
-    .studyAgentPrintFinalSettingsSummary(working, section_paths)
   }
 
   customized_sections <- names(section_paths)[vapply(names(section_paths), function(section_name) {
@@ -2569,6 +2646,21 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       .studyAgentDateStringOrEmpty(value, label)
     }
 
+    normalize_optional_concept_set_id <- function(value, label) {
+      if (is.null(value) || length(value) == 0) return(NA_integer_)
+      if (length(value) == 1 && is.na(value)) return(NA_integer_)
+      if (is.character(value) && length(value) == 1) {
+        normalized <- tolower(trimws(value))
+        if (!nzchar(normalized) || normalized %in% c("na", "null", "none")) return(NA_integer_)
+      }
+      parsed <- suppressWarnings(as.integer(value))
+      if (length(parsed) != 1 || is.na(parsed) || !is.finite(parsed)) {
+        stop(sprintf("%s must be a positive integer or blank.", label))
+      }
+      if (parsed == 0L) return(NA_integer_)
+      validate_positive_integer(parsed, label)
+    }
+
     allowed_sections <- c(
       "study_population",
       "covariate_settings",
@@ -2777,16 +2869,14 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
 
     include_id <- settings$covariate_concept_sets$include_concept_set_id
     exclude_id <- settings$covariate_concept_sets$exclude_concept_set_id
-    settings$covariate_concept_sets$include_concept_set_id <- if (is.null(include_id) || length(include_id) == 0 || is.na(include_id)) {
-      NA_integer_
-    } else {
-      validate_positive_integer(include_id, "analytic_settings.covariate_concept_sets.include_concept_set_id")
-    }
-    settings$covariate_concept_sets$exclude_concept_set_id <- if (is.null(exclude_id) || length(exclude_id) == 0 || is.na(exclude_id)) {
-      NA_integer_
-    } else {
-      validate_positive_integer(exclude_id, "analytic_settings.covariate_concept_sets.exclude_concept_set_id")
-    }
+    settings$covariate_concept_sets$include_concept_set_id <- normalize_optional_concept_set_id(
+      include_id,
+      "analytic_settings.covariate_concept_sets.include_concept_set_id"
+    )
+    settings$covariate_concept_sets$exclude_concept_set_id <- normalize_optional_concept_set_id(
+      exclude_id,
+      "analytic_settings.covariate_concept_sets.exclude_concept_set_id"
+    )
 
     settings
   }
@@ -2861,6 +2951,52 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     }
   }
 
+  review_analytic_settings_interactively <- function(settings) {
+    if (!isTRUE(interactive)) return(settings)
+    section_paths <- .studyAgentAnalyticSettingsSectionPaths()
+    repeat {
+      .studyAgentPrintFinalSettingsSummary(settings, section_paths)
+      if (prompt_yesno_strict("Use these analytic settings?", default = TRUE)) {
+        return(settings)
+      }
+
+      review_path <- file.path(output_dir, "analytic_settings_review.txt")
+      .studyAgentWriteAnalyticSettingsReviewFile(settings, section_paths, review_path)
+      cat(sprintf("\nOpening analytic settings review file:\n  %s\n", review_path))
+      cat("Edit values after ':', save the file, close the editor, then return here.\n")
+      tryCatch(
+        utils::file.edit(review_path),
+        error = function(e) {
+          cat(sprintf("Could not open editor automatically: %s\n", conditionMessage(e)))
+          cat("Open the file manually, edit it, save it, then return here.\n")
+        }
+      )
+
+      repeat {
+        entered <- tolower(trimws(readline("Press Enter after saving, or type 'r' to reopen the file: ")))
+        if (identical(entered, "r")) {
+          tryCatch(
+            utils::file.edit(review_path),
+            error = function(e) cat(sprintf("Could not open editor: %s\n", conditionMessage(e)))
+          )
+          next
+        }
+        break
+      }
+
+      parsed <- tryCatch(
+        normalize_analytic_settings(.studyAgentReadAnalyticSettingsReviewFile(review_path, settings)),
+        error = function(e) e
+      )
+      if (inherits(parsed, "error")) {
+        cat(sprintf("\nAnalytic settings validation failed: %s\n", conditionMessage(parsed)))
+        cat("Please edit the review file and try again.\n")
+        next
+      }
+      settings <- parsed
+    }
+  }
+
   flatten_named_values <- function(x, prefix = NULL) {
     if (is.list(x) && !is.data.frame(x)) {
       pieces <- unlist(
@@ -2883,6 +3019,164 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     }
 
     stats::setNames(list(value), prefix %||% "value")
+  }
+
+  shell_settings_from_acp_recommendation <- function(recommendation, defaults_snapshot) {
+    settings <- defaults_snapshot %||% list()
+    settings$profile_name <- as.character(
+      recommendation$profile_name %||% settings$profile_name %||% "Recommended from ACP"
+    )
+    settings$source <- "acp_flow"
+
+    study_population <- recommendation$study_population %||% list()
+    cohort_method_data_args <- study_population$cohortMethodDataArgs %||% list()
+    if (length(cohort_method_data_args) > 0) {
+      settings$get_db_cohort_method_data <- utils::modifyList(
+        settings$get_db_cohort_method_data %||% list(),
+        cohort_method_data_args
+      )
+    }
+
+    create_study_population <- study_population
+    create_study_population$cohortMethodDataArgs <- NULL
+    time_at_risk <- recommendation$time_at_risk %||% list()
+    if (length(create_study_population) > 0 || length(time_at_risk) > 0) {
+      settings$create_study_population <- utils::modifyList(
+        settings$create_study_population %||% list(),
+        c(create_study_population, time_at_risk)
+      )
+    }
+
+    ps <- recommendation$propensity_score_adjustment %||% list()
+    create_ps <- ps$createPsArgs %||% list()
+    if (length(create_ps) > 0) {
+      settings$create_ps <- utils::modifyList(
+        settings$create_ps %||% list(),
+        list(
+          maxCohortSizeForFitting = create_ps$maxCohortSizeForFitting %||% settings$create_ps$maxCohortSizeForFitting,
+          errorOnHighCorrelation = create_ps$errorOnHighCorrelation %||% settings$create_ps$errorOnHighCorrelation,
+          useRegularization = !is.null(create_ps$prior)
+        )
+      )
+    }
+
+    trim_args <- ps$trimByPsArgs
+    match_args <- ps$matchOnPsArgs
+    stratify_args <- ps$stratifyByPsArgs
+    settings$ps_adjustment <- utils::modifyList(
+      settings$ps_adjustment %||% list(),
+      list(
+        strategy = if (!is.null(match_args)) {
+          "match_on_ps"
+        } else if (!is.null(stratify_args)) {
+          "stratify_by_ps"
+        } else {
+          "none"
+        },
+        trimmingStrategy = if (is.null(trim_args)) {
+          "none"
+        } else if (!is.null(trim_args$equipoiseBounds)) {
+          "by_equipoise"
+        } else {
+          "by_percent"
+        },
+        trimmingPercent = if (!is.null(trim_args$trimFraction)) {
+          as.numeric(trim_args$trimFraction) * 100
+        } else {
+          settings$ps_adjustment$trimmingPercent %||% 5
+        },
+        equipoiseLowerBound = if (!is.null(trim_args$equipoiseBounds) && length(trim_args$equipoiseBounds) >= 1) {
+          as.numeric(trim_args$equipoiseBounds[[1]])
+        } else {
+          settings$ps_adjustment$equipoiseLowerBound %||% 0.25
+        },
+        equipoiseUpperBound = if (!is.null(trim_args$equipoiseBounds) && length(trim_args$equipoiseBounds) >= 2) {
+          as.numeric(trim_args$equipoiseBounds[[2]])
+        } else {
+          settings$ps_adjustment$equipoiseUpperBound %||% 0.75
+        }
+      )
+    )
+    if (!is.null(match_args)) {
+      settings$match_on_ps <- utils::modifyList(settings$match_on_ps %||% list(), match_args)
+    }
+    if (!is.null(stratify_args)) {
+      settings$stratify_by_ps <- utils::modifyList(settings$stratify_by_ps %||% list(), stratify_args)
+    }
+
+    outcome_model <- recommendation$outcome_model %||% list()
+    if (length(outcome_model) > 0) {
+      settings$fit_outcome_model <- utils::modifyList(
+        settings$fit_outcome_model %||% list(),
+        list(
+          modelType = outcome_model$modelType %||% settings$fit_outcome_model$modelType,
+          stratified = outcome_model$stratified %||% settings$fit_outcome_model$stratified,
+          useCovariates = outcome_model$useCovariates %||% settings$fit_outcome_model$useCovariates,
+          inversePtWeighting = outcome_model$inversePtWeighting %||% settings$fit_outcome_model$inversePtWeighting,
+          useRegularization = !is.null(outcome_model$prior)
+        )
+      )
+    }
+
+    settings
+  }
+
+  print_analytic_settings_recommendation_preview <- function(acp_response,
+                                                             recommendation,
+                                                             recommendation_path = NULL,
+                                                             acp_response_path = NULL) {
+    response <- acp_response$response %||% list()
+    diagnostics <- response$diagnostics %||% acp_response$diagnostics %||% list()
+    source <- as.character(acp_response$source %||% recommendation$source %||% "unknown")
+    wrapper_status <- as.character(acp_response$status %||% "unknown")
+    flow_status <- as.character(response$status %||% wrapper_status)
+
+    acp_success <- identical(source, "acp_flow") && identical(flow_status, "ok")
+
+    if (isTRUE(acp_success)) {
+      cat("\nAnalytic settings recommendation from ACP\n")
+      failed_sections <- diagnostics$failed_sections %||% list()
+      if (length(failed_sections) > 0) {
+        cat(sprintf("  - Backfilled sections: %s\n", paste(unlist(failed_sections), collapse = ", ")))
+      }
+
+      rationales <- response$section_rationales %||% acp_response$section_rationales %||% list()
+      if (length(rationales) > 0) {
+        cat("\nRationales\n")
+        for (section in names(rationales)) {
+          entry <- rationales[[section]]
+          section_title <- .studyAgentAnalyticSettingsSectionTitles()[[section]] %||% section
+          cat(sprintf(
+            "[%s] confidence=%s\n%s\n",
+            section_title,
+            entry$confidence %||% "?",
+            entry$rationale %||% ""
+          ))
+        }
+      }
+    } else {
+      cat("\nCohort Method analytic settings recommendation could not be generated by ACP.\n")
+      cat("Using the current default analytic settings for now.\n")
+      reason <- diagnostics$reason %||% response$error %||% acp_response$error %||% NULL
+      if (!is.null(reason) && nzchar(as.character(reason))) {
+        cat(sprintf("Reason: %s\n", as.character(reason)))
+      } else {
+        message <- acp_response$message %||% acp_response$error %||% diagnostics$reason %||% NULL
+        if (!is.null(message) && nzchar(as.character(message))) {
+          cat(sprintf("Reason: %s\n", as.character(message)))
+        }
+      }
+      detail_paths <- c(
+        if (!is.null(acp_response_path) && nzchar(as.character(acp_response_path))) as.character(acp_response_path) else NULL,
+        if (!is.null(recommendation_path) && nzchar(as.character(recommendation_path))) as.character(recommendation_path) else NULL
+      )
+      if (length(detail_paths) > 0) {
+        cat("Details saved to:\n")
+        for (path in detail_paths) {
+          cat(sprintf("  - %s\n", path))
+        }
+      }
+    }
   }
 
   build_dummy_analytic_settings_recommendation <- function(description, defaults_snapshot, input_method = "typed_text") {
@@ -2952,7 +3246,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
           source = "stub_acp_placeholder",
           status = "stub",
           error = conditionMessage(e),
-          message = "ACP flow failed or is not yet implemented. Returning placeholder cohort methods specifications recommendation.",
+          message = "ACP flow failed. Returning placeholder cohort methods specifications recommendation.",
           request = body,
           recommendation = dummy_recommendation
         )
@@ -4254,33 +4548,48 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       analytic_settings_recommendation_path <- cm_analytic_settings_recommendation_path
 
       if (isTRUE(interactive)) {
-        cat("\nAnalytic settings recommendation preview (dummy JSON)\n")
-        flattened_recommendation <- flatten_named_values(analytic_settings_recommendation)
-        for (item_name in names(flattened_recommendation)) {
-          cat(sprintf("  - %s: %s\n", item_name, flattened_recommendation[[item_name]]))
-        }
-        analytic_settings_confirmed <- prompt_yesno_strict(
-          "Confirm this analytic settings recommendation?",
-          default = TRUE
+        print_analytic_settings_recommendation_preview(
+          acp_response = acp_specifications_response,
+          recommendation = analytic_settings_recommendation,
+          recommendation_path = analytic_settings_recommendation_path,
+          acp_response_path = analytic_settings_acp_response_path
         )
-        if (!isTRUE(analytic_settings_confirmed)) {
-          cat("Let's revise the free-text description.\n")
-          next
-        }
+        analytic_settings_confirmed <- FALSE
       } else {
         analytic_settings_confirmed <- isTRUE(cached_inputs$analytic_settings_confirmed %||% TRUE)
       }
 
-      effective_analytic_settings$profile_name <- as.character(
-        analytic_settings_recommendation$profile_name %||% effective_analytic_settings$profile_name
-      )
-      analytic_settings_recommendation_status <- if (identical(analytic_settings_recommendation_source, "acp_flow")) {
-        if (isTRUE(analytic_settings_confirmed)) "confirmed_via_acp" else "received_from_acp"
+      if (identical(analytic_settings_recommendation_source, "acp_flow") &&
+          identical(as.character(acp_specifications_response$response$status %||% acp_specifications_response$status %||% "unknown"), "ok")) {
+        effective_analytic_settings <- shell_settings_from_acp_recommendation(
+          analytic_settings_recommendation,
+          analytic_settings_recommendation$defaults_snapshot %||% effective_analytic_settings
+        )
       } else {
-        if (isTRUE(analytic_settings_confirmed)) "dummy_fallback" else "dummy_generated"
+        effective_analytic_settings$profile_name <- as.character(
+          analytic_settings_recommendation$profile_name %||% effective_analytic_settings$profile_name
+        )
+      }
+      analytic_settings_flow_status <- as.character(
+        acp_specifications_response$response$status %||% acp_specifications_response$status %||% "unknown"
+      )
+      analytic_settings_recommendation_status <- if (
+        identical(analytic_settings_recommendation_source, "acp_flow") &&
+        identical(analytic_settings_flow_status, "ok")
+      ) {
+        if (isTRUE(analytic_settings_confirmed)) "confirmed_via_acp" else "received_from_acp"
+      } else if (identical(analytic_settings_recommendation_source, "acp_flow")) {
+        if (isTRUE(analytic_settings_confirmed)) "confirmed_acp_fallback" else "received_acp_fallback"
+      } else {
+        if (isTRUE(analytic_settings_confirmed)) "stub_fallback" else "stub_generated"
       }
       break
     }
+  }
+
+  if (isTRUE(interactive)) {
+    effective_analytic_settings <- review_analytic_settings_interactively(effective_analytic_settings)
+    analytic_settings_confirmed <- TRUE
   }
 
   effective_analytic_settings$customized_sections <- names(.studyAgentAnalyticSettingsSectionPaths())[vapply(
