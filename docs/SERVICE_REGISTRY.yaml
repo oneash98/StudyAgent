@@ -215,7 +215,7 @@ services:
       Translate a free-text description of a comparative-cohort study design into the
       4-key analytic-settings recommendation shape (`study_population`, `time_at_risk`,
       `propensity_score_adjustment`, `outcome_model`) consumed by the cohort-methods
-      R shell, with the full Theseus document returned alongside for traceability.
+      R shell, with the full cmAnalysis-shaped specification returned alongside for traceability.
     request:
       analytic_settings_description: required string
       study_description: optional string (echo of analytic_settings_description)
@@ -228,13 +228,13 @@ services:
     response:
       status: ok | llm_parse_error | schema_validation_error
       recommendation: 4-key object (study_population, time_at_risk, propensity_score_adjustment, outcome_model) plus mode/input_method/source/status/profile_name/raw_description/deferred_inputs/defaults_snapshot
-      theseus_specifications: full Theseus document (internal traceability)
-      section_rationales: per-Theseus-section { rationale, confidence }
+      theseus_specifications: full cmAnalysis-shaped specification (legacy field name, internal traceability)
+      section_rationales: per-shell-section { rationale, confidence }
       diagnostics: { llm_parse_stage, schema_valid, failed_sections, latency_ms }
     pipeline:
       - mcp.cohort_methods_prompt_bundle
       - llm
-      - core.validate_theseus_spec
+      - core.validate_theseus_spec (validates the cmAnalysis-shaped spec)
       - core.merge_client_metadata (built from flat IDs)
       - core.validate_section + core.backfill_section_from_defaults
-      - core.theseus_to_hanjae_recommendation
+      - core.theseus_to_shell_recommendation

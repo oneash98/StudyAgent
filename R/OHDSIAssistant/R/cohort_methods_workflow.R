@@ -1,7 +1,7 @@
 #' Suggest cohort method study specifications from a free-text description.
 #'
 #' Calls the ACP flow `/flows/cohort_methods_specifications_recommendation`
-#' and returns the cohort-methods recommendation, full Theseus spec for
+#' and returns the cohort-methods recommendation, full analysis spec for
 #' traceability, and per-section rationales. Falls back to a local stub
 #' when `acp_state$url` is NULL.
 #'

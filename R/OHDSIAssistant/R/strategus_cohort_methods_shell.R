@@ -3063,7 +3063,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   cm_analysis_json_path <- file.path(analysis_settings_dir, "cmAnalysis.json")
   cm_analysis_template_path <- system.file("templates", "cmAnalysis_template.json", package = "OHDSIAssistant")
   if (!nzchar(cm_analysis_template_path)) {
-    cm_analysis_template_path <- resolve_path("R/OHDSIAssistant/inst/templates/cmAnalysis_template.json", study_base_dir)
+    cm_analysis_template_path <- resolve_path("mcp_server/prompts/cohort_methods/cmAnalysis_template.json", study_base_dir)
     cm_analysis_template_path <- normalizePath(cm_analysis_template_path, winslash = "/", mustWork = FALSE)
   }
   if (!file.exists(cm_analysis_template_path)) {

@@ -13,39 +13,34 @@ pytestmark = pytest.mark.core
 
 def _minimal_valid_spec() -> dict:
     return {
-        "name": "Study",
-        "cohortDefinitions": {"targetCohort": {"id": 1, "name": "T"}},
-        "negativeControlConceptSet": {"id": None, "name": None},
-        "covariateSelection": {"conceptsToInclude": [], "conceptsToExclude": []},
-        "getDbCohortMethodDataArgs": {"studyPeriods": [], "maxCohortSize": 0},
-        "createStudyPopArgs": {
-            "restrictToCommonPeriod": False,
+        "description": "Study",
+        "getDbCohortMethodDataArgs": {
+            "studyStartDate": "",
+            "studyEndDate": "",
             "firstExposureOnly": False,
-            "washoutPeriod": 0,
             "removeDuplicateSubjects": "keep all",
-            "censorAtNewRiskWindow": False,
-            "removeSubjectsWithPriorOutcome": True,
-            "priorOutcomeLookBack": 99999,
-            "timeAtRisks": [
-                {
-                    "description": "TAR 1",
-                    "riskWindowStart": 0,
-                    "startAnchor": "cohort start",
-                    "riskWindowEnd": 0,
-                    "endAnchor": "cohort end",
-                    "minDaysAtRisk": 1,
-                }
-            ],
+            "restrictToCommonPeriod": False,
+            "washoutPeriod": 365,
+            "maxCohortSize": 0,
         },
-        "propensityScoreAdjustment": {
-            "psSettings": [
-                {
-                    "description": "PS 1",
-                    "matchOnPsArgs": {"maxRatio": 1, "caliper": 0.2, "caliperScale": "standardized logit"},
-                    "stratifyByPsArgs": None,
-                }
-            ],
-            "createPsArgs": {"maxCohortSizeForFitting": 250000, "errorOnHighCorrelation": True, "prior": None, "control": None},
+        "createStudyPopArgs": {
+            "removeSubjectsWithPriorOutcome": True,
+            "priorOutcomeLookback": 99999,
+            "minDaysAtRisk": 1,
+            "riskWindowStart": 1,
+            "startAnchor": "cohort start",
+            "riskWindowEnd": 0,
+            "endAnchor": "cohort end",
+            "censorAtNewRiskWindow": False,
+        },
+        "trimByPsArgs": {"trimFraction": 0.05, "equipoiseBounds": None},
+        "matchOnPsArgs": {"maxRatio": 1, "caliper": 0.2, "caliperScale": "standardized logit"},
+        "stratifyByPsArgs": None,
+        "createPsArgs": {
+            "maxCohortSizeForFitting": 250000,
+            "errorOnHighCorrelation": True,
+            "prior": None,
+            "control": None,
         },
         "fitOutcomeModelArgs": {
             "modelType": "cox",
@@ -65,7 +60,7 @@ def test_top_level_constants() -> None:
         "propensityScoreAdjustment",
         "fitOutcomeModelArgs",
     ]
-    assert "name" in THESEUS_TOP_LEVEL_KEYS
+    assert "description" in THESEUS_TOP_LEVEL_KEYS
 
 
 def test_validate_theseus_spec_accepts_minimal() -> None:
@@ -77,10 +72,10 @@ def test_validate_theseus_spec_accepts_minimal() -> None:
 def test_validate_theseus_spec_reports_missing_keys() -> None:
     spec = _minimal_valid_spec()
     del spec["fitOutcomeModelArgs"]
-    del spec["name"]
+    del spec["description"]
     ok, missing = validate_theseus_spec(spec)
     assert ok is False
-    assert set(missing) == {"name", "fitOutcomeModelArgs"}
+    assert set(missing) == {"description", "fitOutcomeModelArgs"}
 
 
 def test_validate_section_accepts_good_study_pop() -> None:
@@ -106,14 +101,11 @@ def test_validate_section_flags_bad_enum() -> None:
 
 def test_validate_section_flags_range() -> None:
     bad = {
-        "psSettings": [
-            {
-                "description": "bad",
-                "matchOnPsArgs": {"maxRatio": -1, "caliper": -0.5, "caliperScale": "standardized"},
-                "stratifyByPsArgs": None,
-            }
-        ],
-        "createPsArgs": {"maxCohortSizeForFitting": 0, "errorOnHighCorrelation": True, "prior": None, "control": None},
+        "matchOnPsArgs": {
+            "maxRatio": -1,
+            "caliper": -0.5,
+            "caliperScale": "standardized",
+        }
     }
     ok, violations = validate_section("propensityScoreAdjustment", bad)
     assert ok is False
@@ -135,7 +127,6 @@ from study_agent_core.theseus_validation import (
 
 def test_merge_client_metadata_overrides_llm_cohorts() -> None:
     spec = _minimal_valid_spec()
-    spec["cohortDefinitions"] = {"targetCohort": {"id": 999, "name": "LLM guessed"}}
     client_cohort_defs = {
         "targetCohort": {"id": 1, "name": "Real Target"},
         "comparatorCohort": {"id": 2, "name": "Real Comp"},
@@ -156,26 +147,25 @@ def test_merge_client_metadata_overrides_llm_cohorts() -> None:
 
 def test_merge_client_metadata_leaves_name_alone() -> None:
     spec = _minimal_valid_spec()
-    spec["name"] = "LLM-supplied study name"
+    spec["description"] = "LLM-supplied study name"
     merged = merge_client_metadata(
         spec,
         cohort_definitions={},
         negative_control={},
         covariate_selection={},
     )
-    assert merged["name"] == "LLM-supplied study name"
+    assert merged["description"] == "LLM-supplied study name"
 
 
 def test_merge_client_metadata_does_not_mutate_input() -> None:
     spec = _minimal_valid_spec()
-    original_id = spec["cohortDefinitions"]["targetCohort"]["id"]
     merge_client_metadata(
         spec,
         cohort_definitions={"targetCohort": {"id": 42, "name": "X"}},
         negative_control={},
         covariate_selection={},
     )
-    assert spec["cohortDefinitions"]["targetCohort"]["id"] == original_id
+    assert "cohortDefinitions" not in spec
 
 
 def test_backfill_section_from_defaults_replaces_single_section() -> None:
@@ -196,7 +186,7 @@ def test_backfill_section_rejects_unknown_section() -> None:
         backfill_section_from_defaults(spec, defaults, "unknownSection")
 
 
-from study_agent_core.theseus_validation import theseus_to_hanjae_recommendation
+from study_agent_core.theseus_validation import theseus_to_shell_recommendation
 
 
 def _full_spec_with_tar() -> dict:
@@ -209,9 +199,9 @@ def _full_spec_with_tar() -> dict:
     return spec
 
 
-def test_theseus_to_hanjae_separates_tar_keys() -> None:
+def test_theseus_to_shell_separates_tar_keys() -> None:
     spec = _full_spec_with_tar()
-    out = theseus_to_hanjae_recommendation(
+    out = theseus_to_shell_recommendation(
         theseus_spec=spec,
         raw_description="desc",
         defaults_snapshot={"x": 1},
@@ -235,13 +225,18 @@ def test_theseus_to_hanjae_separates_tar_keys() -> None:
     assert "riskWindowStart" not in sp
     assert sp["washoutPeriod"] == 365
     assert sp["cohortMethodDataArgs"] == spec["getDbCohortMethodDataArgs"]
-    assert out["propensity_score_adjustment"] == spec["propensityScoreAdjustment"]
+    assert out["propensity_score_adjustment"] == {
+        "trimByPsArgs": spec["trimByPsArgs"],
+        "matchOnPsArgs": spec["matchOnPsArgs"],
+        "stratifyByPsArgs": spec["stratifyByPsArgs"],
+        "createPsArgs": spec["createPsArgs"],
+    }
     assert out["outcome_model"] == spec["fitOutcomeModelArgs"]
     assert out["deferred_inputs"]["function_argument_description"] == "implemented"
 
 
-def test_theseus_to_hanjae_honors_rec_status_backfilled() -> None:
-    out = theseus_to_hanjae_recommendation(
+def test_theseus_to_shell_honors_rec_status_backfilled() -> None:
+    out = theseus_to_shell_recommendation(
         theseus_spec=_minimal_valid_spec(),
         raw_description="d",
         defaults_snapshot={},
@@ -253,8 +248,8 @@ def test_theseus_to_hanjae_honors_rec_status_backfilled() -> None:
     assert out["input_method"] == "description_argument"
 
 
-def test_theseus_to_hanjae_handles_missing_sections() -> None:
-    out = theseus_to_hanjae_recommendation(
+def test_theseus_to_shell_handles_missing_sections() -> None:
+    out = theseus_to_shell_recommendation(
         theseus_spec={},
         raw_description="d",
         defaults_snapshot={},
@@ -264,14 +259,19 @@ def test_theseus_to_hanjae_handles_missing_sections() -> None:
     )
     assert out["study_population"] == {}
     assert out["time_at_risk"] == {}
-    assert out["propensity_score_adjustment"] == {}
+    assert out["propensity_score_adjustment"] == {
+        "trimByPsArgs": None,
+        "matchOnPsArgs": None,
+        "stratifyByPsArgs": None,
+        "createPsArgs": None,
+    }
     assert out["outcome_model"] == {}
 
 
-def test_theseus_to_hanjae_does_not_mutate_input() -> None:
+def test_theseus_to_shell_does_not_mutate_input() -> None:
     spec = _full_spec_with_tar()
     snapshot = {"profile_name": "snap"}
-    out = theseus_to_hanjae_recommendation(
+    out = theseus_to_shell_recommendation(
         theseus_spec=spec,
         raw_description="d",
         defaults_snapshot=snapshot,

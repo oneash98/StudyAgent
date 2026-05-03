@@ -2,19 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Re-align the existing `/flows/cohort_methods_specifications_recommendation` ACP flow, its Pydantic envelope, and the standalone R wrapper to the wire contract Hanjae's `strategus_cohort_methods_shell.R` already sends and parses. Preserve our Theseus validation, metadata merge, and per-section backfill as internal pipeline steps.
+**Goal:** Re-align the existing `/flows/cohort_methods_specifications_recommendation` ACP flow, its Pydantic envelope, and the standalone R wrapper to the wire contract the cohort-methods `strategus_cohort_methods_shell.R` already sends and parses. Preserve our Theseus validation, metadata merge, and per-section backfill as internal pipeline steps.
 
-**Architecture:** Inputs become flat (`target_cohort_id`, `comparator_cohort_id`, `outcome_cohort_ids`, `comparison_label`, `defaults_snapshot`, plus the existing description fields). The LLM is still steered by the annotated Theseus template. After validation/backfill, a new pure helper `theseus_to_hanjae_recommendation()` projects the Theseus document into Hanjae's flat 4-key recommendation shape (`study_population`, `time_at_risk`, `propensity_score_adjustment`, `outcome_model`). The Theseus document survives in the response under `theseus_specifications` for traceability. Hanjae's R shell is **not** modified.
+**Architecture:** Inputs become flat (`target_cohort_id`, `comparator_cohort_id`, `outcome_cohort_ids`, `comparison_label`, `defaults_snapshot`, plus the existing description fields). The LLM is steered by the MCP-owned `cmAnalysis_template.json` and field descriptions from `CM_ANALYSIS_TEMPLATE.md`. After validation/backfill, `theseus_to_shell_recommendation()` projects the cmAnalysis-shaped spec into the shell's flat 4-key recommendation shape (`study_population`, `time_at_risk`, `propensity_score_adjustment`, `outcome_model`). The validated spec survives in the response under the legacy `theseus_specifications` field for traceability. The cohort-methods R shell is **not** modified.
 
 **Tech Stack:** Python 3.12 (pydantic v2, pytest with markers `core`/`mcp`/`acp`), an existing FastMCP-style MCP server, a plain `BaseHTTPRequestHandler` ACP server, and R 4.x (httr + jsonlite, `.acp_post` / `acp_state` helpers).
 
-**Spec:** `docs/COHORT_METHODS_SPECIFICATIONS_RECOMMENDATION_DESIGN.md` (Hanjae-contract revision).
+**Spec:** `docs/COHORT_METHODS_SPECIFICATIONS_RECOMMENDATION_DESIGN.md` (shell-contract revision).
 
-**Template asset (unchanged):** `theseus/customAtlasTemplate_v1.3.0_annotated.txt`.
+**Template assets:** `mcp_server/prompts/cohort_methods/cmAnalysis_template.json` and `mcp_server/prompts/cohort_methods/CM_ANALYSIS_TEMPLATE.md`.
 
 ---
 
-## Task 1: Pydantic Envelope Models — Flat Input, Hanjae-Shaped Output
+## Task 1: Pydantic Envelope Models — Flat Input, shell-shaped Output
 
 **Files:**
 - Modify: `core/study_agent_core/models.py:276-293`
@@ -55,7 +55,7 @@ def test_input_accepts_minimal_payload() -> None:
     assert payload.defaults_snapshot == {}
 
 
-def test_input_accepts_full_hanjae_body() -> None:
+def test_input_accepts_full_shell_body() -> None:
     payload = CohortMethodSpecsRecommendationInput(
         analytic_settings_description="365-day washout, 1:1 PS match, Cox",
         study_description="365-day washout, 1:1 PS match, Cox",
@@ -133,7 +133,7 @@ git commit -m "$(cat <<'EOF'
 refactor(core): align cohort methods specs envelope with R shell contract
 
 Replace nested cohort_definitions/concept-set fields with the flat IDs
-the cohort-methods R shell already sends; replace Theseus-shaped output
+sent by the cohort-methods R shell; replace Theseus-shaped output
 with the recommendation/theseus_specifications/section_rationales triple
 the shell already parses.
 
@@ -144,7 +144,7 @@ EOF
 
 ---
 
-## Task 2: Theseus → Hanjae Recommendation Helper
+## Task 2: Theseus → Shell Recommendation Helper
 
 **Files:**
 - Modify: `core/study_agent_core/theseus_validation.py`
@@ -155,7 +155,7 @@ EOF
 Append the following to the end of `tests/test_theseus_validation.py`:
 
 ```python
-from study_agent_core.theseus_validation import theseus_to_hanjae_recommendation
+from study_agent_core.theseus_validation import theseus_to_shell_recommendation
 
 
 def _full_spec_with_tar() -> dict:
@@ -168,9 +168,9 @@ def _full_spec_with_tar() -> dict:
     return spec
 
 
-def test_theseus_to_hanjae_separates_tar_keys() -> None:
+def test_theseus_to_shell_separates_tar_keys() -> None:
     spec = _full_spec_with_tar()
-    out = theseus_to_hanjae_recommendation(
+    out = theseus_to_shell_recommendation(
         theseus_spec=spec,
         raw_description="desc",
         defaults_snapshot={"x": 1},
@@ -199,8 +199,8 @@ def test_theseus_to_hanjae_separates_tar_keys() -> None:
     assert out["deferred_inputs"]["function_argument_description"] == "implemented"
 
 
-def test_theseus_to_hanjae_honors_rec_status_backfilled() -> None:
-    out = theseus_to_hanjae_recommendation(
+def test_theseus_to_shell_honors_rec_status_backfilled() -> None:
+    out = theseus_to_shell_recommendation(
         theseus_spec=_minimal_valid_spec(),
         raw_description="d",
         defaults_snapshot={},
@@ -212,8 +212,8 @@ def test_theseus_to_hanjae_honors_rec_status_backfilled() -> None:
     assert out["input_method"] == "description_argument"
 
 
-def test_theseus_to_hanjae_handles_missing_sections() -> None:
-    out = theseus_to_hanjae_recommendation(
+def test_theseus_to_shell_handles_missing_sections() -> None:
+    out = theseus_to_shell_recommendation(
         theseus_spec={},
         raw_description="d",
         defaults_snapshot={},
@@ -227,10 +227,10 @@ def test_theseus_to_hanjae_handles_missing_sections() -> None:
     assert out["outcome_model"] == {}
 
 
-def test_theseus_to_hanjae_does_not_mutate_input() -> None:
+def test_theseus_to_shell_does_not_mutate_input() -> None:
     spec = _full_spec_with_tar()
     snapshot = {"profile_name": "snap"}
-    out = theseus_to_hanjae_recommendation(
+    out = theseus_to_shell_recommendation(
         theseus_spec=spec,
         raw_description="d",
         defaults_snapshot=snapshot,
@@ -248,7 +248,7 @@ def test_theseus_to_hanjae_does_not_mutate_input() -> None:
 
 Run: `pytest -q tests/test_theseus_validation.py`
 
-Expected: FAIL — `theseus_to_hanjae_recommendation` does not exist yet.
+Expected: FAIL — `theseus_to_shell_recommendation` does not exist yet.
 
 - [ ] **Step 3: Add the helper**
 
@@ -258,7 +258,7 @@ In `core/study_agent_core/theseus_validation.py`, append the following at the en
 _TAR_KEYS: Tuple[str, ...] = ("startAnchor", "riskWindowStart", "endAnchor", "riskWindowEnd")
 
 
-def theseus_to_hanjae_recommendation(
+def theseus_to_shell_recommendation(
     *,
     theseus_spec: Dict[str, Any],
     raw_description: str,
@@ -320,7 +320,7 @@ Expected: previous tests still pass plus 4 new tests pass — total of 14 (or 15
 ```bash
 git add core/study_agent_core/theseus_validation.py tests/test_theseus_validation.py
 git commit -m "$(cat <<'EOF'
-feat(core): add theseus_to_hanjae_recommendation projector
+feat(core): add theseus_to_shell_recommendation projector
 
 Pure helper that picks the four LLM-filled Theseus sections and projects
 them into the cohort-methods R shell's 4-key recommendation shape, with
@@ -334,7 +334,7 @@ EOF
 
 ---
 
-## Task 3: ACP Flow Handler — Flat Input, Hanjae-Shaped Output
+## Task 3: ACP Flow Handler — Flat Input, shell-shaped Output
 
 **Files:**
 - Modify: `acp_agent/study_agent_acp/agent.py:411-576`
@@ -360,7 +360,7 @@ pytestmark = pytest.mark.acp
 def _annotated_template() -> str:
     import os
     here = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.abspath(os.path.join(here, "..", "theseus", "customAtlasTemplate_v1.3.0_annotated.txt"))
+    path = os.path.abspath(os.path.join(here, "..", "mcp_server", "prompts", "cohort_methods", "cmAnalysis_template.json"))
     with open(path, "r", encoding="utf-8") as fh:
         return fh.read()
 
@@ -423,7 +423,7 @@ def _build_agent_with_mocks(bundle_payload: Dict[str, Any], llm_result) -> Study
     return agent
 
 
-def test_happy_path_returns_hanjae_shape() -> None:
+def test_happy_path_returns_shell_shape() -> None:
     defaults = _defaults_spec()
     agent = _build_agent_with_mocks(_make_bundle_payload(), _make_llm_result(_valid_llm_payload(defaults)))
     result = agent.run_cohort_methods_specs_recommendation_flow(
@@ -538,7 +538,7 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
             LLM_FILLED_SECTIONS,
             backfill_section_from_defaults,
             merge_client_metadata,
-            theseus_to_hanjae_recommendation,
+            theseus_to_shell_recommendation,
             validate_section,
             validate_theseus_spec,
         )
@@ -551,7 +551,11 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
             raise RuntimeError(f"cohort_methods_prompt_bundle failed: {bundle}")
         bundle_full = bundle.get("full_result") or {}
         defaults_spec: Dict[str, Any] = bundle_full.get("defaults_spec", {})
-        annotated_template: str = bundle_full.get("annotated_template", "")
+        analysis_template: str = (
+            bundle_full.get("analysis_specifications_template")
+            or bundle_full.get("annotated_template", "")
+        )
+        json_field_descriptions: str = bundle_full.get("json_field_descriptions", "")
         instruction: str = bundle_full.get("instruction_template", "")
         output_style: str = bundle_full.get("output_style_template", "")
 
@@ -582,11 +586,11 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
                 negative_control={},
                 covariate_selection={},
             )
-            recommendation = theseus_to_hanjae_recommendation(
+            recommendation = theseus_to_shell_recommendation(
                 theseus_spec=merged_defaults,
                 raw_description=analytic_settings_description or "",
                 defaults_snapshot=defaults_snapshot,
-                profile_name=merged_defaults.get("name") or profile_name_default,
+                profile_name=merged_defaults.get("description") or merged_defaults.get("name") or profile_name_default,
                 input_method=input_method,
                 rec_status="backfilled",
             )
@@ -616,13 +620,13 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
             (study_intent or "").strip(),
             "</Study Intent>",
             "",
-            "<Current Analysis Specifications>",
-            json.dumps(defaults_spec, indent=2),
-            "</Current Analysis Specifications>",
-            "",
             "<Analysis Specifications Template>",
-            annotated_template,
+            analysis_template,
             "</Analysis Specifications Template>",
+            "",
+            "<JSON Fields Descriptions>",
+            json_field_descriptions,
+            "</JSON Fields Descriptions>",
             "",
             output_style,
         ]
@@ -682,7 +686,7 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
                 }
 
         rec_status = "backfilled" if diagnostics["failed_sections"] else "received"
-        recommendation = theseus_to_hanjae_recommendation(
+        recommendation = theseus_to_shell_recommendation(
             theseus_spec=spec,
             raw_description=analytic_settings_description,
             defaults_snapshot=defaults_snapshot,
@@ -714,8 +718,8 @@ refactor(acp): rewrite cohort_methods_specs flow for R shell contract
 
 Take flat IDs from the R shell, build cohortDefinitions internally for
 metadata merge, validate Theseus output, then project to the 4-key
-recommendation shape via theseus_to_hanjae_recommendation. Internal
-Theseus document and per-section rationales remain as response fields
+recommendation shape via theseus_to_shell_recommendation. Internal
+Validated spec and per-section rationales remain as response fields
 for traceability.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
@@ -805,7 +809,7 @@ Overwrite `R/OHDSIAssistant/R/cohort_methods_workflow.R` with:
 #' Suggest cohort method study specifications from a free-text description.
 #'
 #' Calls the ACP flow `/flows/cohort_methods_specifications_recommendation`
-#' and returns the cohort-methods recommendation, full Theseus spec for
+#' and returns the cohort-methods recommendation, full analysis spec for
 #' traceability, and per-section rationales. Falls back to a local stub
 #' when `acp_state$url` is NULL.
 #'
@@ -1054,7 +1058,7 @@ Note the line range. Replace the entire entry under that key with:
       Translate a free-text description of a comparative-cohort study design into the
       4-key analytic-settings recommendation shape (`study_population`, `time_at_risk`,
       `propensity_score_adjustment`, `outcome_model`) consumed by the cohort-methods
-      R shell, with the full Theseus document returned alongside for traceability.
+      R shell, with the full cmAnalysis-shaped specification returned alongside for traceability.
     request:
       analytic_settings_description: required string
       study_description: optional string (echo of analytic_settings_description)
@@ -1067,7 +1071,7 @@ Note the line range. Replace the entire entry under that key with:
     response:
       status: ok | llm_parse_error | schema_validation_error
       recommendation: 4-key object (study_population, time_at_risk, propensity_score_adjustment, outcome_model) plus mode/input_method/source/status/profile_name/raw_description/deferred_inputs/defaults_snapshot
-      theseus_specifications: full Theseus document (internal traceability)
+      theseus_specifications: full cmAnalysis-shaped specification (internal traceability)
       section_rationales: per-Theseus-section { rationale, confidence }
       diagnostics: { llm_parse_stage, schema_valid, failed_sections, latency_ms }
     pipeline:
@@ -1076,7 +1080,7 @@ Note the line range. Replace the entire entry under that key with:
       - core.validate_theseus_spec
       - core.merge_client_metadata (built from flat IDs)
       - core.validate_section + core.backfill_section_from_defaults
-      - core.theseus_to_hanjae_recommendation
+      - core.theseus_to_shell_recommendation
 ```
 
 (Adjust the indentation to match the surrounding YAML — check 2-space indentation under `flows:`.)
@@ -1171,7 +1175,7 @@ If everything was clean, do nothing; this task is just the verification gate.
 ## Notes For The Implementer
 
 1. **Do not modify `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`.** That file is owned upstream and deliberately left alone here.
-2. **Do not change `mcp_server/study_agent_mcp/tools/cohort_methods_prompt_bundle.py`.** The Theseus annotated template asset is still useful — only the wire shape shifts.
+2. **Keep `mcp_server/study_agent_mcp/tools/cohort_methods_prompt_bundle.py` aligned with the MCP-owned cmAnalysis assets.** The prompt bundle now sources `cmAnalysis_template.json` and field descriptions from `CM_ANALYSIS_TEMPLATE.md`.
 3. The `Tuple` import in `core/study_agent_core/theseus_validation.py` may already be present; verify before adding it.
 4. The `Optional` and `List` imports in `acp_agent/study_agent_acp/agent.py` are already present (used by other flow methods), so no import changes are needed there.
 5. After Task 8, the existing `feat/cohort-methods-specs` branch will have nine refactor commits on top of the original nine feature commits. They can be squashed before PR via `git rebase -i origin/main` if desired — that decision is left to the merger, not this plan.

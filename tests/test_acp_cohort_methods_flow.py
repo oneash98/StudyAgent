@@ -13,15 +13,13 @@ pytestmark = pytest.mark.acp
 def _annotated_template() -> str:
     import os
     here = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.abspath(os.path.join(here, "..", "theseus", "customAtlasTemplate_v1.3.0_annotated.txt"))
+    path = os.path.abspath(os.path.join(here, "..", "mcp_server", "prompts", "cohort_methods", "cmAnalysis_template.json"))
     with open(path, "r", encoding="utf-8") as fh:
         return fh.read()
 
 
 def _defaults_spec() -> Dict[str, Any]:
-    import re
-    stripped = re.sub(r"/\*.*?\*/", "", _annotated_template(), flags=re.DOTALL)
-    return json.loads(stripped)
+    return json.loads(_annotated_template())
 
 
 def _make_bundle_payload() -> Dict[str, Any]:
@@ -31,8 +29,10 @@ def _make_bundle_payload() -> Dict[str, Any]:
             "instruction_template": "<Instruction>...</Instruction>",
             "output_style_template": "<Output Style>...</Output Style>",
             "annotated_template": _annotated_template(),
+            "analysis_specifications_template": _annotated_template(),
+            "json_field_descriptions": "## Top-Level Shape\n...",
             "defaults_spec": _defaults_spec(),
-            "schema_version": "v1.3.0",
+            "schema_version": "v1.4.0",
         },
     }
 
@@ -54,15 +54,15 @@ def _make_llm_result(content: Dict[str, Any], status: str = "ok") -> MagicMock:
 
 def _valid_llm_payload(defaults: Dict[str, Any]) -> Dict[str, Any]:
     spec = json.loads(json.dumps(defaults))
-    spec["name"] = "Example"
-    spec["createStudyPopArgs"]["washoutPeriod"] = 365
+    spec["description"] = "Example"
+    spec["getDbCohortMethodDataArgs"]["washoutPeriod"] = 365
     return {
         "specifications": spec,
         "sectionRationales": {
-            "getDbCohortMethodDataArgs":  {"rationale": "ok", "confidence": "medium"},
-            "createStudyPopArgs":         {"rationale": "washout lengthened", "confidence": "high"},
-            "propensityScoreAdjustment":  {"rationale": "defaults", "confidence": "medium"},
-            "fitOutcomeModelArgs":        {"rationale": "defaults", "confidence": "medium"},
+            "study_population":             {"rationale": "washout lengthened", "confidence": "high"},
+            "time_at_risk":                 {"rationale": "risk window kept", "confidence": "medium"},
+            "propensity_score_adjustment":  {"rationale": "defaults", "confidence": "medium"},
+            "outcome_model":                {"rationale": "defaults", "confidence": "medium"},
         },
     }
 
@@ -76,7 +76,7 @@ def _build_agent_with_mocks(bundle_payload: Dict[str, Any], llm_result) -> Study
     return agent
 
 
-def test_happy_path_returns_hanjae_shape() -> None:
+def test_happy_path_returns_shell_shape() -> None:
     defaults = _defaults_spec()
     agent = _build_agent_with_mocks(_make_bundle_payload(), _make_llm_result(_valid_llm_payload(defaults)))
     result = agent.run_cohort_methods_specs_recommendation_flow(
@@ -94,11 +94,19 @@ def test_happy_path_returns_hanjae_shape() -> None:
     assert rec["status"] == "received"
     assert rec["profile_name"] == "Example"
     assert rec["raw_description"] == "compare A vs B with 1-year washout"
-    assert rec["study_population"]["washoutPeriod"] == 365
+    assert rec["study_population"]["cohortMethodDataArgs"]["washoutPeriod"] == 365
     assert rec["defaults_snapshot"]["profile_name"] == "snapshot"
     assert "section_rationales" in result
-    assert result["section_rationales"]["createStudyPopArgs"]["confidence"] == "high"
+    assert result["section_rationales"]["study_population"]["confidence"] == "high"
+    assert result["section_rationales"]["time_at_risk"]["confidence"] == "medium"
+    assert result["section_rationales"]["propensity_score_adjustment"]["confidence"] == "medium"
+    assert result["section_rationales"]["outcome_model"]["confidence"] == "medium"
     assert result["theseus_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
+    prompt = agent._call_llm.call_args.args[0]
+    assert "<Current Analysis Specifications>" not in prompt
+    assert "<Analysis Specifications Template>" in prompt
+    assert "<JSON Fields Descriptions>" in prompt
+    assert "## Top-Level Shape" in prompt
 
 
 def test_client_cohort_ids_override_llm_drift() -> None:
@@ -144,7 +152,7 @@ def test_section_schema_violation_backfills_with_low_confidence() -> None:
     assert "fitOutcomeModelArgs" in result["diagnostics"]["failed_sections"]
     assert result["recommendation"]["status"] == "backfilled"
     assert result["recommendation"]["outcome_model"]["modelType"] == "cox"
-    assert result["section_rationales"]["fitOutcomeModelArgs"]["confidence"] == "low"
+    assert result["section_rationales"]["outcome_model"]["confidence"] == "low"
 
 
 def test_missing_description_errors_out() -> None:

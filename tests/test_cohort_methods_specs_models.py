@@ -28,7 +28,7 @@ def test_input_accepts_minimal_payload() -> None:
     assert payload.defaults_snapshot == {}
 
 
-def test_input_accepts_full_hanjae_body() -> None:
+def test_input_accepts_full_shell_body() -> None:
     payload = CohortMethodSpecsRecommendationInput(
         analytic_settings_description="365-day washout, 1:1 PS match, Cox",
         study_description="365-day washout, 1:1 PS match, Cox",

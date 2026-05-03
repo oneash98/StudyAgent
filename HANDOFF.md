@@ -1,6 +1,85 @@
 # Cohort Methods Shell Handoff
 
-## 0. Current Update: Cohort Methods Intent Split
+## 0. Current Update: Cohort Methods Specs Prompt Bundle + cmAnalysis Template
+
+- Cohort-methods specifications recommendation prompt assets were moved under MCP prompts:
+  - `mcp_server/prompts/cohort_methods/cmAnalysis_template.json`
+  - `mcp_server/prompts/cohort_methods/CM_ANALYSIS_TEMPLATE.md`
+- The previous R package template copies were removed from:
+  - `R/OHDSIAssistant/inst/templates/cmAnalysis_template.json`
+  - `R/OHDSIAssistant/inst/templates/CM_ANALYSIS_TEMPLATE.md`
+- `runStrategusCohortMethodsShell()` fallback template lookup now points to:
+  - `mcp_server/prompts/cohort_methods/cmAnalysis_template.json`
+- User has finalized `mcp_server/prompts/cohort_methods/CM_ANALYSIS_TEMPLATE.md`.
+  - A temporary review copy was used earlier, but it is no longer present.
+  - Treat `CM_ANALYSIS_TEMPLATE.md` as the current source of field descriptions.
+- `cohort_methods_prompt_bundle` now builds the bundle from the MCP-owned cmAnalysis assets:
+  - `defaults_spec`: parsed JSON from `cmAnalysis_template.json`
+  - `analysis_specifications_template`: pretty JSON string from `cmAnalysis_template.json`
+  - `annotated_template`: kept as a legacy alias to the same pretty JSON string
+  - `json_field_descriptions`: text sliced from `CM_ANALYSIS_TEMPLATE.md` starting at `## Top-Level Shape`
+  - `schema_version`: `v1.4.0`
+- ACP prompt assembly for `/flows/cohort_methods_specifications_recommendation` changed:
+  - Removed `<Current Analysis Specifications>`.
+  - Prompt now includes:
+    - `<Instruction>`
+    - `<Text>`
+    - `<Study Intent>`
+    - `<Analysis Specifications Template>`
+    - `<JSON Fields Descriptions>`
+    - `<Output Style>`
+- The LLM output style still returns `{ specifications, sectionRationales }`, but `sectionRationales`
+  now uses R-shell section names:
+  - `study_population`
+  - `time_at_risk`
+  - `propensity_score_adjustment`
+  - `outcome_model`
+- ACP final response `section_rationales` also uses those same R-shell section names.
+- Internal validation remains four-section based, matching the original validation granularity:
+  - `getDbCohortMethodDataArgs`
+  - `createStudyPopArgs`
+  - `propensityScoreAdjustment`
+  - `fitOutcomeModelArgs`
+- Because cmAnalysis uses separate PS top-level fields (`trimByPsArgs`, `matchOnPsArgs`,
+  `stratifyByPsArgs`, `createPsArgs`), ACP validates/backfills those together under the
+  single `propensityScoreAdjustment` internal section.
+- The response field name `theseus_specifications` is still preserved for compatibility, but it now
+  contains the validated cmAnalysis-shaped specification plus merged client metadata.
+- `theseus_to_hanjae_recommendation()` was renamed to `theseus_to_shell_recommendation()`;
+  no `hanjae` naming should remain in code/docs/tests.
+
+### Current Verification
+
+- Passed:
+  - `python -m py_compile mcp_server/study_agent_mcp/tools/cohort_methods_prompt_bundle.py acp_agent/study_agent_acp/agent.py core/study_agent_core/theseus_validation.py`
+  - `python -m json.tool mcp_server/prompts/cohort_methods/cmAnalysis_template.json`
+  - `python -m pytest -q tests/test_cohort_methods_prompt_bundle.py tests/test_theseus_validation.py tests/test_acp_cohort_methods_flow.py tests/test_cohort_methods_specs_models.py` → 32 passed
+  - `python -m pytest -q tests/test_mcp_tools_registry.py::test_register_all_tools tests/test_acp_cohort_methods_route.py` → 2 passed
+  - `Rscript -e "source('R/OHDSIAssistant/R/strategus_cohort_methods_shell.R')"`
+  - `git diff --check`
+- Full `pytest` has not been rerun in this final state.
+
+### Current Worktree Notes
+
+- Important modified/moved paths:
+  - `mcp_server/study_agent_mcp/tools/cohort_methods_prompt_bundle.py`
+  - `mcp_server/prompts/cohort_methods/cmAnalysis_template.json`
+  - `mcp_server/prompts/cohort_methods/CM_ANALYSIS_TEMPLATE.md`
+  - `acp_agent/study_agent_acp/agent.py`
+  - `core/study_agent_core/theseus_validation.py`
+  - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
+  - `R/OHDSIAssistant/R/cohort_methods_workflow.R`
+  - `docs/SERVICE_REGISTRY.yaml`
+  - `docs/COHORT_METHODS_SPECIFICATIONS_RECOMMENDATION_DESIGN.md`
+  - `docs/COHORT_METHODS_SPECIFICATIONS_RECOMMENDATION_PLAN.md`
+  - `tests/test_cohort_methods_prompt_bundle.py`
+  - `tests/test_acp_cohort_methods_flow.py`
+  - `tests/test_theseus_validation.py`
+- Deleted old template paths:
+  - `R/OHDSIAssistant/inst/templates/cmAnalysis_template.json`
+  - `R/OHDSIAssistant/inst/templates/CM_ANALYSIS_TEMPLATE.md`
+
+## 0a. Previous Update: Cohort Methods Intent Split
 
 - A separate cohort-methods study intent split flow is now implemented:
   - ACP endpoint: `/flows/cohort_methods_intent_split`
@@ -88,8 +167,8 @@
   - This is separate from `outputs/` state/cache artifacts; it is the analysis-settings
     contract artifact intended for CohortMethod-oriented downstream use.
 - The executable JSON template and explanation live under:
-  - `R/OHDSIAssistant/inst/templates/cmAnalysis_template.json`
-  - `R/OHDSIAssistant/inst/templates/CM_ANALYSIS_TEMPLATE.md`
+  - `mcp_server/prompts/cohort_methods/cmAnalysis_template.json`
+  - `mcp_server/prompts/cohort_methods/CM_ANALYSIS_TEMPLATE.md`
 - `CM_ANALYSIS_TEMPLATE.md` explicitly documents that this structure is a temporary
   StudyAgent-specific contract for the Strategus CohortMethod shell, not a public
   OHDSI / Strategus / CohortMethod schema.
@@ -241,7 +320,7 @@
   - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
   - `R/OHDSIAssistant/tests/testthat/test-step-by-step-analytic-settings.R`
 - Current session verification also completed:
-  - `python -m json.tool R/OHDSIAssistant/inst/templates/cmAnalysis_template.json` passes.
+  - `python -m json.tool mcp_server/prompts/cohort_methods/cmAnalysis_template.json` passes.
   - `Rscript` source check passes using the installed R path:
     `C:/Program Files/R/R-4.5.3/bin/Rscript.exe`.
   - A non-interactive shell smoke run generated and parsed
@@ -365,8 +444,8 @@
 - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
 - `acp_agent/study_agent_acp/llm_client.py`
 - `tests/test_llm_client.py`
-- `R/OHDSIAssistant/inst/templates/cmAnalysis_template.json`
-- `R/OHDSIAssistant/inst/templates/CM_ANALYSIS_TEMPLATE.md`
+- `mcp_server/prompts/cohort_methods/cmAnalysis_template.json`
+- `mcp_server/prompts/cohort_methods/CM_ANALYSIS_TEMPLATE.md`
 
 ## 7. Current Git / Worktree Note
 
@@ -395,7 +474,7 @@
 ### 한 일
 
 - **Pydantic envelope 재정렬** (`core/study_agent_core/models.py`): nested `cohort_definitions` / `negative_control_concept_set` / `covariate_selection` / `current_specifications` → flat IDs (`target_cohort_id`, `comparator_cohort_id`, `outcome_cohort_ids`, `comparison_label`, `defaults_snapshot`). 응답 모양도 `specifications` / `sectionRationales`(camelCase) → `recommendation` / `theseus_specifications` / `section_rationales` triple.
-- **Theseus → Hanjae projector 추가** (`core/study_agent_core/theseus_validation.py`): `theseus_to_hanjae_recommendation()` 순수 헬퍼. TAR 4개 키 → `time_at_risk`, 나머지 `createStudyPopArgs` + `getDbCohortMethodDataArgs` → `study_population.cohortMethodDataArgs`. 모두 deepcopy.
+- **Theseus → Shell projector 추가** (`core/study_agent_core/theseus_validation.py`): `theseus_to_shell_recommendation()` 순수 헬퍼. TAR 4개 키 → `time_at_risk`, 나머지 `createStudyPopArgs` + `getDbCohortMethodDataArgs` → `study_population.cohortMethodDataArgs`. 모두 deepcopy.
 - **ACP flow handler 재작성** (`acp_agent/study_agent_acp/agent.py:411`): flat IDs 입력, 내부에서 `cohortDefinitions` 조립 → `merge_client_metadata` (LLM drift override) → 섹션별 validate/backfill → projector. Theseus 문서는 `theseus_specifications`로 traceability 유지.
 - **ACP HTTP route 갱신** (`acp_agent/study_agent_acp/server.py:285`): 새 Pydantic 필드 그대로 통과.
 - **R 래퍼 정렬** (`R/OHDSIAssistant/R/cohort_methods_workflow.R`): `suggestCohortMethodSpecs()`가 셸이 보내는 flat body 그대로 전송, `recommendation` / `theseus_specifications` / `section_rationales` 응답 파싱. 로컬 stub도 wire 모양 그대로.
@@ -417,6 +496,6 @@
 
 ### 모식도
 
-- `cohort_methods_architecture.png` — 레이어별 데이터 흐름 (R Shell → ACP route → Flow handler ↔ MCP/LLM/core helpers → Hanjae 응답)
-- `cohort_methods_scenarios.png` — Hanjae 셸 진입부터 모든 분기 (`step_by_step` / `free_text` × description 출처 4종 × ACP 가용성 × HTTP/flow 상태)
+- `cohort_methods_architecture.png` — 레이어별 데이터 흐름 (R Shell → ACP route → Flow handler ↔ MCP/LLM/core helpers → shell 응답)
+- `cohort_methods_scenarios.png` — cohort-methods shell 진입부터 모든 분기 (`step_by_step` / `free_text` × description 출처 4종 × ACP 가용성 × HTTP/flow 상태)
 - 소스: `cohort_methods_architecture.mmd`, `cohort_methods_scenarios.mmd`

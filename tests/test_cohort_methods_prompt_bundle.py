@@ -1,7 +1,7 @@
 import pytest
 
-from study_agent_core.theseus_validation import THESEUS_TOP_LEVEL_KEYS, validate_theseus_spec
 from study_agent_mcp.tools import cohort_methods_prompt_bundle
+from study_agent_core.theseus_validation import THESEUS_TOP_LEVEL_KEYS, validate_theseus_spec
 
 
 class DummyMCP:
@@ -25,23 +25,38 @@ def test_bundle_returns_expected_keys() -> None:
     assert "instruction_template" in payload
     assert "output_style_template" in payload
     assert "annotated_template" in payload
+    assert "analysis_specifications_template" in payload
+    assert "json_field_descriptions" in payload
     assert "defaults_spec" in payload
-    assert payload["schema_version"] == "v1.3.0"
+    assert payload["schema_version"] == "v1.4.0"
 
 
 @pytest.mark.mcp
-def test_annotated_template_loads_original_file() -> None:
+def test_analysis_template_loads_cm_analysis_template() -> None:
     mcp = DummyMCP()
     cohort_methods_prompt_bundle.register(mcp)
     fn = mcp.tools["cohort_methods_prompt_bundle"]
     payload = fn()
-    assert "customAtlasTemplate" not in payload["annotated_template"]  # no filename leak
-    assert "/* ATLAS Cohort ID */" in payload["annotated_template"]
-    assert "fitOutcomeModelArgs" in payload["annotated_template"]
+    assert "customAtlasTemplate" not in payload["analysis_specifications_template"]
+    assert "/*" not in payload["analysis_specifications_template"]
+    assert "fitOutcomeModelArgs" in payload["analysis_specifications_template"]
+    assert payload["annotated_template"] == payload["analysis_specifications_template"]
 
 
 @pytest.mark.mcp
-def test_defaults_spec_is_comment_stripped_valid_json() -> None:
+def test_json_field_descriptions_start_at_top_level_shape() -> None:
+    mcp = DummyMCP()
+    cohort_methods_prompt_bundle.register(mcp)
+    fn = mcp.tools["cohort_methods_prompt_bundle"]
+    payload = fn()
+    descriptions = payload["json_field_descriptions"]
+    assert descriptions.startswith("## Top-Level Shape")
+    assert "temporary StudyAgent-specific contract" not in descriptions
+    assert "fitOutcomeModelArgs" in descriptions
+
+
+@pytest.mark.mcp
+def test_defaults_spec_is_cm_analysis_template_json() -> None:
     mcp = DummyMCP()
     cohort_methods_prompt_bundle.register(mcp)
     fn = mcp.tools["cohort_methods_prompt_bundle"]

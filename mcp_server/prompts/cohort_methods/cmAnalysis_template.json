@@ -19,10 +19,7 @@
     "endAnchor": "cohort end",
     "censorAtNewRiskWindow": false
   },
-  "trimByPsArgs": {
-    "trimFraction": 0.05,
-    "equipoiseBounds": null
-  },
+  "trimByPsArgs": null,
   "matchOnPsArgs": {
     "maxRatio": 1,
     "caliper": 0.2,

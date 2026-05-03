@@ -1,6 +1,6 @@
-"""Pure validation, merge, and backfill helpers for the Theseus cohort-method spec.
+"""Pure validation, merge, and backfill helpers for cohort-method specs.
 
-No IO. No network. Rule updates live in THESEUS_SECTION_RULES only.
+No IO. No network. Rule updates live in the section checkers only.
 """
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ from typing import Any, Dict, List, Tuple
 
 
 THESEUS_TOP_LEVEL_KEYS: List[str] = [
-    "name",
-    "cohortDefinitions",
-    "negativeControlConceptSet",
-    "covariateSelection",
+    "description",
     "getDbCohortMethodDataArgs",
     "createStudyPopArgs",
-    "propensityScoreAdjustment",
+    "trimByPsArgs",
+    "matchOnPsArgs",
+    "stratifyByPsArgs",
+    "createPsArgs",
     "fitOutcomeModelArgs",
 ]
 
@@ -26,7 +26,7 @@ LLM_FILLED_SECTIONS: List[str] = [
     "fitOutcomeModelArgs",
 ]
 
-_REMOVE_DUP = {"keep all", "keep first", "remove all"}
+_REMOVE_DUP = {"keep all", "keep first", "remove all", "keep first, truncate to second"}
 _ANCHOR = {"cohort start", "cohort end"}
 _CALIPER_SCALE = {"propensity score", "standardized", "standardized logit"}
 _BASE_SELECTION = {"all", "target", "comparator"}
@@ -53,33 +53,51 @@ def validate_section(section_name: str, value: Any) -> Tuple[bool, List[str]]:
     """
     if section_name not in LLM_FILLED_SECTIONS:
         return False, [f"unknown section: {section_name}"]
-    if not isinstance(value, dict):
-        return False, [f"{section_name} must be an object"]
     checker = _SECTION_CHECKERS[section_name]
     violations: List[str] = []
     checker(value, violations)
     return (len(violations) == 0, violations)
 
 
-def _check_get_db_args(value: Dict[str, Any], violations: List[str]) -> None:
+def _require_object(section_name: str, value: Any, violations: List[str]) -> bool:
+    if isinstance(value, dict):
+        return True
+    violations.append(f"{section_name} must be an object")
+    return False
+
+
+def _check_get_db_args(value: Any, violations: List[str]) -> None:
+    if not _require_object("getDbCohortMethodDataArgs", value, violations):
+        return
     max_size = value.get("maxCohortSize")
     if max_size is not None and isinstance(max_size, (int, float)) and max_size < 0:
         violations.append("maxCohortSize must be >= 0")
+    washout = value.get("washoutPeriod")
+    if isinstance(washout, (int, float)) and washout < 0:
+        violations.append("washoutPeriod must be >= 0")
+    dup = value.get("removeDuplicateSubjects")
+    if dup is not None and dup not in _REMOVE_DUP:
+        violations.append(f"removeDuplicateSubjects must be one of {sorted(_REMOVE_DUP)}")
     periods = value.get("studyPeriods")
     if periods is not None and not isinstance(periods, list):
         violations.append("studyPeriods must be a list")
 
 
-def _check_study_pop(value: Dict[str, Any], violations: List[str]) -> None:
-    dup = value.get("removeDuplicateSubjects")
-    if dup is not None and dup not in _REMOVE_DUP:
-        violations.append(f"removeDuplicateSubjects must be one of {sorted(_REMOVE_DUP)}")
-    washout = value.get("washoutPeriod")
-    if isinstance(washout, (int, float)) and washout < 0:
-        violations.append("washoutPeriod must be >= 0")
-    lookback = value.get("priorOutcomeLookBack")
+def _check_study_pop(value: Any, violations: List[str]) -> None:
+    if not _require_object("createStudyPopArgs", value, violations):
+        return
+    lookback = value.get("priorOutcomeLookback", value.get("priorOutcomeLookBack"))
     if isinstance(lookback, (int, float)) and lookback < 0:
-        violations.append("priorOutcomeLookBack must be >= 0")
+        violations.append("priorOutcomeLookback must be >= 0")
+    min_days = value.get("minDaysAtRisk")
+    if isinstance(min_days, (int, float)) and min_days < 0:
+        violations.append("minDaysAtRisk must be >= 0")
+    start = value.get("startAnchor")
+    end = value.get("endAnchor")
+    if start is not None and start not in _ANCHOR:
+        violations.append(f"startAnchor must be one of {sorted(_ANCHOR)}")
+    if end is not None and end not in _ANCHOR:
+        violations.append(f"endAnchor must be one of {sorted(_ANCHOR)}")
     tars = value.get("timeAtRisks")
     if tars is None:
         return
@@ -101,7 +119,80 @@ def _check_study_pop(value: Dict[str, Any], violations: List[str]) -> None:
             violations.append(f"timeAtRisks[{idx}].minDaysAtRisk must be >= 1")
 
 
-def _check_ps_adjustment(value: Dict[str, Any], violations: List[str]) -> None:
+def _check_trim_by_ps(value: Any, violations: List[str]) -> None:
+    if value is None:
+        return
+    if not _require_object("trimByPsArgs", value, violations):
+        return
+    trim = value.get("trimFraction")
+    if isinstance(trim, (int, float)) and (trim < 0 or trim > 1):
+        violations.append("trimFraction must be between 0 and 1")
+    bounds = value.get("equipoiseBounds")
+    if bounds is not None:
+        if not isinstance(bounds, list) or len(bounds) != 2:
+            violations.append("equipoiseBounds must be a two-item list or null")
+        elif all(isinstance(x, (int, float)) for x in bounds):
+            if bounds[0] < 0 or bounds[1] > 1 or bounds[0] >= bounds[1]:
+                violations.append("equipoiseBounds must be ordered values between 0 and 1")
+
+
+def _check_match_on_ps(value: Any, violations: List[str]) -> None:
+    if value is None:
+        return
+    if not _require_object("matchOnPsArgs", value, violations):
+        return
+    ratio = value.get("maxRatio")
+    if isinstance(ratio, (int, float)) and ratio < 0:
+        violations.append("maxRatio must be >= 0")
+    cal = value.get("caliper")
+    if isinstance(cal, (int, float)) and cal < 0:
+        violations.append("caliper must be >= 0")
+    scale = value.get("caliperScale")
+    if scale is not None and scale not in _CALIPER_SCALE:
+        violations.append(f"caliperScale must be one of {sorted(_CALIPER_SCALE)}")
+
+
+def _check_stratify_by_ps(value: Any, violations: List[str]) -> None:
+    if value is None:
+        return
+    if not _require_object("stratifyByPsArgs", value, violations):
+        return
+    strata = value.get("numberOfStrata")
+    if isinstance(strata, (int, float)) and strata < 1:
+        violations.append("numberOfStrata must be >= 1")
+    base = value.get("baseSelection")
+    if base is not None and base not in _BASE_SELECTION:
+        violations.append(f"baseSelection must be one of {sorted(_BASE_SELECTION)}")
+
+
+def _check_create_ps(value: Any, violations: List[str]) -> None:
+    if value is None:
+        return
+    if not _require_object("createPsArgs", value, violations):
+        return
+    max_fit = value.get("maxCohortSizeForFitting")
+    if isinstance(max_fit, (int, float)) and max_fit < 0:
+        violations.append("maxCohortSizeForFitting must be >= 0")
+    control = value.get("control")
+    if isinstance(control, dict):
+        cv = control.get("cvType")
+        if cv is not None and cv not in _CV_TYPE:
+            violations.append(f"control.cvType must be one of {sorted(_CV_TYPE)}")
+        noise = control.get("noiseLevel")
+        if noise is not None and noise not in _NOISE_LEVEL:
+            violations.append(f"control.noiseLevel must be one of {sorted(_NOISE_LEVEL)}")
+
+
+def _check_ps_adjustment(value: Any, violations: List[str]) -> None:
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        violations.append("propensityScoreAdjustment must be an object or absent")
+        return
+    _check_trim_by_ps(value.get("trimByPsArgs"), violations)
+    _check_match_on_ps(value.get("matchOnPsArgs"), violations)
+    _check_stratify_by_ps(value.get("stratifyByPsArgs"), violations)
+    _check_create_ps(value.get("createPsArgs"), violations)
     settings = value.get("psSettings")
     if settings is None:
         return
@@ -147,7 +238,9 @@ def _check_ps_adjustment(value: Dict[str, Any], violations: List[str]) -> None:
                 violations.append(f"createPsArgs.control.noiseLevel must be one of {sorted(_NOISE_LEVEL)}")
 
 
-def _check_outcome_model(value: Dict[str, Any], violations: List[str]) -> None:
+def _check_outcome_model(value: Any, violations: List[str]) -> None:
+    if not _require_object("fitOutcomeModelArgs", value, violations):
+        return
     model_type = value.get("modelType")
     if model_type is not None and model_type not in _MODEL_TYPE:
         violations.append(f"modelType must be one of {sorted(_MODEL_TYPE)}")
@@ -209,7 +302,7 @@ def backfill_section_from_defaults(
 _TAR_KEYS: Tuple[str, ...] = ("startAnchor", "riskWindowStart", "endAnchor", "riskWindowEnd")
 
 
-def theseus_to_hanjae_recommendation(
+def theseus_to_shell_recommendation(
     *,
     theseus_spec: Dict[str, Any],
     raw_description: str,
@@ -218,14 +311,22 @@ def theseus_to_hanjae_recommendation(
     input_method: str,
     rec_status: str,
 ) -> Dict[str, Any]:
-    """Project a validated Theseus spec into the 4-key recommendation shape the
+    """Project a validated cohort-method spec into the 4-key recommendation shape the
     cohort-methods R shell expects.
 
     See docs/COHORT_METHODS_SPECIFICATIONS_RECOMMENDATION_DESIGN.md §6.
     """
     cspa = (theseus_spec or {}).get("createStudyPopArgs") or {}
     cmda = (theseus_spec or {}).get("getDbCohortMethodDataArgs") or {}
-    psadj = (theseus_spec or {}).get("propensityScoreAdjustment") or {}
+    if "propensityScoreAdjustment" in (theseus_spec or {}):
+        psadj = (theseus_spec or {}).get("propensityScoreAdjustment") or {}
+    else:
+        psadj = {
+            "trimByPsArgs": deepcopy((theseus_spec or {}).get("trimByPsArgs")),
+            "matchOnPsArgs": deepcopy((theseus_spec or {}).get("matchOnPsArgs")),
+            "stratifyByPsArgs": deepcopy((theseus_spec or {}).get("stratifyByPsArgs")),
+            "createPsArgs": deepcopy((theseus_spec or {}).get("createPsArgs")),
+        }
     fmod = (theseus_spec or {}).get("fitOutcomeModelArgs") or {}
 
     study_population: Dict[str, Any] = {

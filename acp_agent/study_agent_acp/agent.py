@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Protocol
 
 from study_agent_core.models import (
@@ -424,7 +425,7 @@ class StudyAgent:
             LLM_FILLED_SECTIONS,
             backfill_section_from_defaults,
             merge_client_metadata,
-            theseus_to_hanjae_recommendation,
+            theseus_to_shell_recommendation,
             validate_section,
             validate_theseus_spec,
         )
@@ -437,7 +438,11 @@ class StudyAgent:
             raise RuntimeError(f"cohort_methods_prompt_bundle failed: {bundle}")
         bundle_full = bundle.get("full_result") or {}
         defaults_spec: Dict[str, Any] = bundle_full.get("defaults_spec", {})
-        annotated_template: str = bundle_full.get("annotated_template", "")
+        analysis_template: str = (
+            bundle_full.get("analysis_specifications_template")
+            or bundle_full.get("annotated_template", "")
+        )
+        json_field_descriptions: str = bundle_full.get("json_field_descriptions", "")
         instruction: str = bundle_full.get("instruction_template", "")
         output_style: str = bundle_full.get("output_style_template", "")
 
@@ -468,11 +473,11 @@ class StudyAgent:
                 negative_control={},
                 covariate_selection={},
             )
-            recommendation = theseus_to_hanjae_recommendation(
+            recommendation = theseus_to_shell_recommendation(
                 theseus_spec=merged_defaults,
                 raw_description=analytic_settings_description or "",
                 defaults_snapshot=defaults_snapshot,
-                profile_name=merged_defaults.get("name") or profile_name_default,
+                profile_name=merged_defaults.get("description") or merged_defaults.get("name") or profile_name_default,
                 input_method=input_method,
                 rec_status="backfilled",
             )
@@ -502,13 +507,13 @@ class StudyAgent:
             (study_intent or "").strip(),
             "</Study Intent>",
             "",
-            "<Current Analysis Specifications>",
-            json.dumps(defaults_spec, indent=2),
-            "</Current Analysis Specifications>",
-            "",
             "<Analysis Specifications Template>",
-            annotated_template,
+            analysis_template,
             "</Analysis Specifications Template>",
+            "",
+            "<JSON Fields Descriptions>",
+            json_field_descriptions,
+            "</JSON Fields Descriptions>",
             "",
             output_style,
         ]
@@ -547,33 +552,54 @@ class StudyAgent:
             covariate_selection={},
         )
 
+        rationale_section_map = {
+            "getDbCohortMethodDataArgs": "study_population",
+            "createStudyPopArgs": "study_population",
+            "propensityScoreAdjustment": "propensity_score_adjustment",
+            "fitOutcomeModelArgs": "outcome_model",
+        }
         rationales_in = payload.get("sectionRationales") or {}
         rationales_out: Dict[str, Dict[str, Any]] = {}
-        for section in LLM_FILLED_SECTIONS:
-            incoming = rationales_in.get(section) if isinstance(rationales_in, dict) else None
+        for rationale_section in ("study_population", "time_at_risk", "propensity_score_adjustment", "outcome_model"):
+            incoming = rationales_in.get(rationale_section) if isinstance(rationales_in, dict) else None
             if isinstance(incoming, dict):
-                rationales_out[section] = {
+                rationales_out[rationale_section] = {
                     "rationale": str(incoming.get("rationale", "")),
                     "confidence": incoming.get("confidence", "low") if incoming.get("confidence") in {"high", "medium", "low"} else "low",
                 }
             else:
-                rationales_out[section] = {"rationale": "", "confidence": "low"}
+                rationales_out[rationale_section] = {"rationale": "", "confidence": "low"}
 
-            ok_sec, violations = validate_section(section, spec.get(section))
+        for section in LLM_FILLED_SECTIONS:
+            rationale_section = rationale_section_map.get(section, section)
+
+            section_value = spec.get(section)
+            if section == "propensityScoreAdjustment" and section not in spec:
+                section_value = {
+                    "trimByPsArgs": spec.get("trimByPsArgs"),
+                    "matchOnPsArgs": spec.get("matchOnPsArgs"),
+                    "stratifyByPsArgs": spec.get("stratifyByPsArgs"),
+                    "createPsArgs": spec.get("createPsArgs"),
+                }
+            ok_sec, violations = validate_section(section, section_value)
             if not ok_sec:
-                spec = backfill_section_from_defaults(spec, defaults_spec, section)
+                if section == "propensityScoreAdjustment" and section not in defaults_spec:
+                    for ps_section in ("trimByPsArgs", "matchOnPsArgs", "stratifyByPsArgs", "createPsArgs"):
+                        spec[ps_section] = deepcopy(defaults_spec.get(ps_section))
+                else:
+                    spec = backfill_section_from_defaults(spec, defaults_spec, section)
                 diagnostics["failed_sections"].append(section)
-                rationales_out[section] = {
-                    "rationale": (rationales_out[section].get("rationale") or "") + f" [backfilled: {'; '.join(violations)}]",
+                rationales_out[rationale_section] = {
+                    "rationale": (rationales_out[rationale_section].get("rationale") or "") + f" [backfilled: {'; '.join(violations)}]",
                     "confidence": "low",
                 }
 
         rec_status = "backfilled" if diagnostics["failed_sections"] else "received"
-        recommendation = theseus_to_hanjae_recommendation(
+        recommendation = theseus_to_shell_recommendation(
             theseus_spec=spec,
             raw_description=analytic_settings_description,
             defaults_snapshot=defaults_snapshot,
-            profile_name=spec.get("name") or profile_name_default,
+            profile_name=spec.get("description") or spec.get("name") or profile_name_default,
             input_method=input_method,
             rec_status=rec_status,
         )
