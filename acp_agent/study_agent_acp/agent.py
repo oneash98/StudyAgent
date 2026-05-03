@@ -421,13 +421,13 @@ class StudyAgent:
     ) -> Dict[str, Any]:
         import re as _re
 
-        from study_agent_core.theseus_validation import (
+        from study_agent_core.cohort_methods_spec_validation import (
             LLM_FILLED_SECTIONS,
             backfill_section_from_defaults,
             merge_client_metadata,
-            theseus_to_shell_recommendation,
+            cohort_methods_spec_to_shell_recommendation,
             validate_section,
-            validate_theseus_spec,
+            validate_cohort_methods_spec,
         )
 
         if self._mcp_client is None:
@@ -473,8 +473,8 @@ class StudyAgent:
                 negative_control={},
                 covariate_selection={},
             )
-            recommendation = theseus_to_shell_recommendation(
-                theseus_spec=merged_defaults,
+            recommendation = cohort_methods_spec_to_shell_recommendation(
+                cohort_methods_spec=merged_defaults,
                 raw_description=analytic_settings_description or "",
                 defaults_snapshot=defaults_snapshot,
                 profile_name=merged_defaults.get("description") or merged_defaults.get("name") or profile_name_default,
@@ -487,7 +487,7 @@ class StudyAgent:
             return {
                 "status": status,
                 "recommendation": recommendation,
-                "theseus_specifications": merged_defaults,
+                "cohort_methods_specifications": merged_defaults,
                 "section_rationales": {s: {"rationale": "", "confidence": "low"} for s in LLM_FILLED_SECTIONS},
                 "diagnostics": diagnostics,
             }
@@ -539,7 +539,7 @@ class StudyAgent:
             return _fallback("llm_parse_error")
 
         spec = payload.get("specifications") or {}
-        ok_top, missing = validate_theseus_spec(spec)
+        ok_top, missing = validate_cohort_methods_spec(spec)
         if not ok_top:
             diagnostics["llm_parse_stage"] = "schema_validation_failed"
             diagnostics["missing_keys"] = missing
@@ -595,8 +595,8 @@ class StudyAgent:
                 }
 
         rec_status = "backfilled" if diagnostics["failed_sections"] else "received"
-        recommendation = theseus_to_shell_recommendation(
-            theseus_spec=spec,
+        recommendation = cohort_methods_spec_to_shell_recommendation(
+            cohort_methods_spec=spec,
             raw_description=analytic_settings_description,
             defaults_snapshot=defaults_snapshot,
             profile_name=spec.get("description") or spec.get("name") or profile_name_default,
@@ -606,7 +606,7 @@ class StudyAgent:
         return {
             "status": "ok",
             "recommendation": recommendation,
-            "theseus_specifications": spec,
+            "cohort_methods_specifications": spec,
             "section_rationales": rationales_out,
             "diagnostics": diagnostics,
         }

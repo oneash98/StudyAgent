@@ -101,7 +101,7 @@ def test_happy_path_returns_shell_shape() -> None:
     assert result["section_rationales"]["time_at_risk"]["confidence"] == "medium"
     assert result["section_rationales"]["propensity_score_adjustment"]["confidence"] == "medium"
     assert result["section_rationales"]["outcome_model"]["confidence"] == "medium"
-    assert result["theseus_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
+    assert result["cohort_methods_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
     prompt = agent._call_llm.call_args.args[0]
     assert "<Current Analysis Specifications>" not in prompt
     assert "<Analysis Specifications Template>" in prompt
@@ -120,7 +120,7 @@ def test_client_cohort_ids_override_llm_drift() -> None:
         comparator_cohort_id=2,
         outcome_cohort_ids=[3],
     )
-    assert result["theseus_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
+    assert result["cohort_methods_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
 
 
 def test_llm_parse_error_returns_defaults_fallback() -> None:

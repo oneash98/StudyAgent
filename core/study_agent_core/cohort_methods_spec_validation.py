@@ -8,7 +8,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Tuple
 
 
-THESEUS_TOP_LEVEL_KEYS: List[str] = [
+COHORT_METHODS_SPEC_TOP_LEVEL_KEYS: List[str] = [
     "description",
     "getDbCohortMethodDataArgs",
     "createStudyPopArgs",
@@ -35,14 +35,14 @@ _NOISE_LEVEL = {"silent", "quiet", "noisy"}
 _MODEL_TYPE = {"logistic", "poisson", "cox"}
 
 
-def validate_theseus_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str]]:
+def validate_cohort_methods_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """Check top-level structural completeness.
 
     Returns (ok, missing_keys). Does not descend into section contents.
     """
     if not isinstance(spec, dict):
-        return False, list(THESEUS_TOP_LEVEL_KEYS)
-    missing = [k for k in THESEUS_TOP_LEVEL_KEYS if k not in spec]
+        return False, list(COHORT_METHODS_SPEC_TOP_LEVEL_KEYS)
+    missing = [k for k in COHORT_METHODS_SPEC_TOP_LEVEL_KEYS if k not in spec]
     return (len(missing) == 0, missing)
 
 
@@ -302,9 +302,9 @@ def backfill_section_from_defaults(
 _TAR_KEYS: Tuple[str, ...] = ("startAnchor", "riskWindowStart", "endAnchor", "riskWindowEnd")
 
 
-def theseus_to_shell_recommendation(
+def cohort_methods_spec_to_shell_recommendation(
     *,
-    theseus_spec: Dict[str, Any],
+    cohort_methods_spec: Dict[str, Any],
     raw_description: str,
     defaults_snapshot: Dict[str, Any],
     profile_name: str,
@@ -316,18 +316,18 @@ def theseus_to_shell_recommendation(
 
     See docs/COHORT_METHODS_SPECIFICATIONS_RECOMMENDATION_DESIGN.md §6.
     """
-    cspa = (theseus_spec or {}).get("createStudyPopArgs") or {}
-    cmda = (theseus_spec or {}).get("getDbCohortMethodDataArgs") or {}
-    if "propensityScoreAdjustment" in (theseus_spec or {}):
-        psadj = (theseus_spec or {}).get("propensityScoreAdjustment") or {}
+    cspa = (cohort_methods_spec or {}).get("createStudyPopArgs") or {}
+    cmda = (cohort_methods_spec or {}).get("getDbCohortMethodDataArgs") or {}
+    if "propensityScoreAdjustment" in (cohort_methods_spec or {}):
+        psadj = (cohort_methods_spec or {}).get("propensityScoreAdjustment") or {}
     else:
         psadj = {
-            "trimByPsArgs": deepcopy((theseus_spec or {}).get("trimByPsArgs")),
-            "matchOnPsArgs": deepcopy((theseus_spec or {}).get("matchOnPsArgs")),
-            "stratifyByPsArgs": deepcopy((theseus_spec or {}).get("stratifyByPsArgs")),
-            "createPsArgs": deepcopy((theseus_spec or {}).get("createPsArgs")),
+            "trimByPsArgs": deepcopy((cohort_methods_spec or {}).get("trimByPsArgs")),
+            "matchOnPsArgs": deepcopy((cohort_methods_spec or {}).get("matchOnPsArgs")),
+            "stratifyByPsArgs": deepcopy((cohort_methods_spec or {}).get("stratifyByPsArgs")),
+            "createPsArgs": deepcopy((cohort_methods_spec or {}).get("createPsArgs")),
         }
-    fmod = (theseus_spec or {}).get("fitOutcomeModelArgs") or {}
+    fmod = (cohort_methods_spec or {}).get("fitOutcomeModelArgs") or {}
 
     study_population: Dict[str, Any] = {
         k: deepcopy(v) for k, v in cspa.items() if k not in _TAR_KEYS

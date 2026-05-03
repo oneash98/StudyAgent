@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Re-align the existing `/flows/cohort_methods_specifications_recommendation` ACP flow, its Pydantic envelope, and the standalone R wrapper to the wire contract the cohort-methods `strategus_cohort_methods_shell.R` already sends and parses. Preserve our Theseus validation, metadata merge, and per-section backfill as internal pipeline steps.
+**Goal:** Re-align the existing `/flows/cohort_methods_specifications_recommendation` ACP flow, its Pydantic envelope, and the standalone R wrapper to the wire contract the cohort-methods `strategus_cohort_methods_shell.R` already sends and parses. Preserve our cohort-methods spec validation, metadata merge, and per-section backfill as internal pipeline steps.
 
-**Architecture:** Inputs become flat (`target_cohort_id`, `comparator_cohort_id`, `outcome_cohort_ids`, `comparison_label`, `defaults_snapshot`, plus the existing description fields). The LLM is steered by the MCP-owned `cmAnalysis_template.json` and field descriptions from `CM_ANALYSIS_TEMPLATE.md`. After validation/backfill, `theseus_to_shell_recommendation()` projects the cmAnalysis-shaped spec into the shell's flat 4-key recommendation shape (`study_population`, `time_at_risk`, `propensity_score_adjustment`, `outcome_model`). The validated spec survives in the response under the legacy `theseus_specifications` field for traceability. The cohort-methods R shell is **not** modified.
+**Architecture:** Inputs become flat (`target_cohort_id`, `comparator_cohort_id`, `outcome_cohort_ids`, `comparison_label`, `defaults_snapshot`, plus the existing description fields). The LLM is steered by the MCP-owned `cmAnalysis_template.json` and field descriptions from `CM_ANALYSIS_TEMPLATE.md`. After validation/backfill, `cohort_methods_spec_to_shell_recommendation()` projects the cmAnalysis-shaped spec into the shell's flat 4-key recommendation shape (`study_population`, `time_at_risk`, `propensity_score_adjustment`, `outcome_model`). The validated spec survives in the response under the legacy `cohort_methods_specifications` field for traceability. The cohort-methods R shell is **not** modified.
 
 **Tech Stack:** Python 3.12 (pydantic v2, pytest with markers `core`/`mcp`/`acp`), an existing FastMCP-style MCP server, a plain `BaseHTTPRequestHandler` ACP server, and R 4.x (httr + jsonlite, `.acp_post` / `acp_state` helpers).
 
@@ -75,7 +75,7 @@ def test_output_defaults() -> None:
     out = CohortMethodSpecsRecommendationOutput(status="ok")
     assert out.status == "ok"
     assert out.recommendation == {}
-    assert out.theseus_specifications is None
+    assert out.cohort_methods_specifications is None
     assert out.section_rationales == {}
     assert out.diagnostics == {}
 
@@ -114,7 +114,7 @@ CohortMethodSpecsStatus = Literal["ok", "llm_parse_error", "schema_validation_er
 class CohortMethodSpecsRecommendationOutput(BaseModel):
     status: CohortMethodSpecsStatus
     recommendation: Dict[str, Any] = Field(default_factory=dict)
-    theseus_specifications: Optional[Dict[str, Any]] = None
+    cohort_methods_specifications: Optional[Dict[str, Any]] = None
     section_rationales: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
 ```
@@ -133,8 +133,8 @@ git commit -m "$(cat <<'EOF'
 refactor(core): align cohort methods specs envelope with R shell contract
 
 Replace nested cohort_definitions/concept-set fields with the flat IDs
-sent by the cohort-methods R shell; replace Theseus-shaped output
-with the recommendation/theseus_specifications/section_rationales triple
+sent by the cohort-methods R shell; replace cohort-methods spec-shaped output
+with the recommendation/cohort_methods_specifications/section_rationales triple
 the shell already parses.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
@@ -144,18 +144,18 @@ EOF
 
 ---
 
-## Task 2: Theseus → Shell Recommendation Helper
+## Task 2: cohort-methods spec → Shell Recommendation Helper
 
 **Files:**
-- Modify: `core/study_agent_core/theseus_validation.py`
-- Modify: `tests/test_theseus_validation.py`
+- Modify: `core/study_agent_core/cohort_methods_spec_validation.py`
+- Modify: `tests/test_cohort_methods_spec_validation.py`
 
 - [ ] **Step 1: Append failing tests**
 
-Append the following to the end of `tests/test_theseus_validation.py`:
+Append the following to the end of `tests/test_cohort_methods_spec_validation.py`:
 
 ```python
-from study_agent_core.theseus_validation import theseus_to_shell_recommendation
+from study_agent_core.cohort_methods_spec_validation import cohort_methods_spec_to_shell_recommendation
 
 
 def _full_spec_with_tar() -> dict:
@@ -168,10 +168,10 @@ def _full_spec_with_tar() -> dict:
     return spec
 
 
-def test_theseus_to_shell_separates_tar_keys() -> None:
+def test_cohort_methods_spec_to_shell_separates_tar_keys() -> None:
     spec = _full_spec_with_tar()
-    out = theseus_to_shell_recommendation(
-        theseus_spec=spec,
+    out = cohort_methods_spec_to_shell_recommendation(
+        cohort_methods_spec=spec,
         raw_description="desc",
         defaults_snapshot={"x": 1},
         profile_name="P",
@@ -199,9 +199,9 @@ def test_theseus_to_shell_separates_tar_keys() -> None:
     assert out["deferred_inputs"]["function_argument_description"] == "implemented"
 
 
-def test_theseus_to_shell_honors_rec_status_backfilled() -> None:
-    out = theseus_to_shell_recommendation(
-        theseus_spec=_minimal_valid_spec(),
+def test_cohort_methods_spec_to_shell_honors_rec_status_backfilled() -> None:
+    out = cohort_methods_spec_to_shell_recommendation(
+        cohort_methods_spec=_minimal_valid_spec(),
         raw_description="d",
         defaults_snapshot={},
         profile_name="X",
@@ -212,9 +212,9 @@ def test_theseus_to_shell_honors_rec_status_backfilled() -> None:
     assert out["input_method"] == "description_argument"
 
 
-def test_theseus_to_shell_handles_missing_sections() -> None:
-    out = theseus_to_shell_recommendation(
-        theseus_spec={},
+def test_cohort_methods_spec_to_shell_handles_missing_sections() -> None:
+    out = cohort_methods_spec_to_shell_recommendation(
+        cohort_methods_spec={},
         raw_description="d",
         defaults_snapshot={},
         profile_name="X",
@@ -227,11 +227,11 @@ def test_theseus_to_shell_handles_missing_sections() -> None:
     assert out["outcome_model"] == {}
 
 
-def test_theseus_to_shell_does_not_mutate_input() -> None:
+def test_cohort_methods_spec_to_shell_does_not_mutate_input() -> None:
     spec = _full_spec_with_tar()
     snapshot = {"profile_name": "snap"}
-    out = theseus_to_shell_recommendation(
-        theseus_spec=spec,
+    out = cohort_methods_spec_to_shell_recommendation(
+        cohort_methods_spec=spec,
         raw_description="d",
         defaults_snapshot=snapshot,
         profile_name="X",
@@ -246,36 +246,36 @@ def test_theseus_to_shell_does_not_mutate_input() -> None:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pytest -q tests/test_theseus_validation.py`
+Run: `pytest -q tests/test_cohort_methods_spec_validation.py`
 
-Expected: FAIL — `theseus_to_shell_recommendation` does not exist yet.
+Expected: FAIL — `cohort_methods_spec_to_shell_recommendation` does not exist yet.
 
 - [ ] **Step 3: Add the helper**
 
-In `core/study_agent_core/theseus_validation.py`, append the following at the end of the file (after `backfill_section_from_defaults`):
+In `core/study_agent_core/cohort_methods_spec_validation.py`, append the following at the end of the file (after `backfill_section_from_defaults`):
 
 ```python
 _TAR_KEYS: Tuple[str, ...] = ("startAnchor", "riskWindowStart", "endAnchor", "riskWindowEnd")
 
 
-def theseus_to_shell_recommendation(
+def cohort_methods_spec_to_shell_recommendation(
     *,
-    theseus_spec: Dict[str, Any],
+    cohort_methods_spec: Dict[str, Any],
     raw_description: str,
     defaults_snapshot: Dict[str, Any],
     profile_name: str,
     input_method: str,
     rec_status: str,
 ) -> Dict[str, Any]:
-    """Project a validated Theseus spec into the 4-key recommendation shape the
+    """Project a validated cohort-methods spec spec into the 4-key recommendation shape the
     cohort-methods R shell expects.
 
     See docs/COHORT_METHODS_SPECIFICATIONS_RECOMMENDATION_DESIGN.md §6.
     """
-    cspa = (theseus_spec or {}).get("createStudyPopArgs") or {}
-    cmda = (theseus_spec or {}).get("getDbCohortMethodDataArgs") or {}
-    psadj = (theseus_spec or {}).get("propensityScoreAdjustment") or {}
-    fmod = (theseus_spec or {}).get("fitOutcomeModelArgs") or {}
+    cspa = (cohort_methods_spec or {}).get("createStudyPopArgs") or {}
+    cmda = (cohort_methods_spec or {}).get("getDbCohortMethodDataArgs") or {}
+    psadj = (cohort_methods_spec or {}).get("propensityScoreAdjustment") or {}
+    fmod = (cohort_methods_spec or {}).get("fitOutcomeModelArgs") or {}
 
     study_population: Dict[str, Any] = {
         k: deepcopy(v) for k, v in cspa.items() if k not in _TAR_KEYS
@@ -311,18 +311,18 @@ Also at the top of the file, change the typing import from `from typing import A
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pytest -q tests/test_theseus_validation.py`
+Run: `pytest -q tests/test_cohort_methods_spec_validation.py`
 
 Expected: previous tests still pass plus 4 new tests pass — total of 14 (or 15 depending on baseline).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add core/study_agent_core/theseus_validation.py tests/test_theseus_validation.py
+git add core/study_agent_core/cohort_methods_spec_validation.py tests/test_cohort_methods_spec_validation.py
 git commit -m "$(cat <<'EOF'
-feat(core): add theseus_to_shell_recommendation projector
+feat(core): add cohort_methods_spec_to_shell_recommendation projector
 
-Pure helper that picks the four LLM-filled Theseus sections and projects
+Pure helper that picks the four LLM-filled cohort-methods spec sections and projects
 them into the cohort-methods R shell's 4-key recommendation shape, with
 TAR fields routed to time_at_risk and getDbCohortMethodDataArgs nested
 under study_population.
@@ -445,7 +445,7 @@ def test_happy_path_returns_shell_shape() -> None:
     assert rec["defaults_snapshot"]["profile_name"] == "snapshot"
     assert "section_rationales" in result
     assert result["section_rationales"]["createStudyPopArgs"]["confidence"] == "high"
-    assert result["theseus_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
+    assert result["cohort_methods_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
 
 
 def test_client_cohort_ids_override_llm_drift() -> None:
@@ -459,7 +459,7 @@ def test_client_cohort_ids_override_llm_drift() -> None:
         comparator_cohort_id=2,
         outcome_cohort_ids=[3],
     )
-    assert result["theseus_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
+    assert result["cohort_methods_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 1
 
 
 def test_llm_parse_error_returns_defaults_fallback() -> None:
@@ -534,13 +534,13 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
     ) -> Dict[str, Any]:
         import re as _re
 
-        from study_agent_core.theseus_validation import (
+        from study_agent_core.cohort_methods_spec_validation import (
             LLM_FILLED_SECTIONS,
             backfill_section_from_defaults,
             merge_client_metadata,
-            theseus_to_shell_recommendation,
+            cohort_methods_spec_to_shell_recommendation,
             validate_section,
-            validate_theseus_spec,
+            validate_cohort_methods_spec,
         )
 
         if self._mcp_client is None:
@@ -586,8 +586,8 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
                 negative_control={},
                 covariate_selection={},
             )
-            recommendation = theseus_to_shell_recommendation(
-                theseus_spec=merged_defaults,
+            recommendation = cohort_methods_spec_to_shell_recommendation(
+                cohort_methods_spec=merged_defaults,
                 raw_description=analytic_settings_description or "",
                 defaults_snapshot=defaults_snapshot,
                 profile_name=merged_defaults.get("description") or merged_defaults.get("name") or profile_name_default,
@@ -600,7 +600,7 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
             return {
                 "status": status,
                 "recommendation": recommendation,
-                "theseus_specifications": merged_defaults,
+                "cohort_methods_specifications": merged_defaults,
                 "section_rationales": {s: {"rationale": "", "confidence": "low"} for s in LLM_FILLED_SECTIONS},
                 "diagnostics": diagnostics,
             }
@@ -651,7 +651,7 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
             return _fallback("llm_parse_error")
 
         spec = payload.get("specifications") or {}
-        ok_top, missing = validate_theseus_spec(spec)
+        ok_top, missing = validate_cohort_methods_spec(spec)
         if not ok_top:
             diagnostics["llm_parse_stage"] = "schema_validation_failed"
             diagnostics["missing_keys"] = missing
@@ -686,8 +686,8 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
                 }
 
         rec_status = "backfilled" if diagnostics["failed_sections"] else "received"
-        recommendation = theseus_to_shell_recommendation(
-            theseus_spec=spec,
+        recommendation = cohort_methods_spec_to_shell_recommendation(
+            cohort_methods_spec=spec,
             raw_description=analytic_settings_description,
             defaults_snapshot=defaults_snapshot,
             profile_name=spec.get("name") or profile_name_default,
@@ -697,7 +697,7 @@ In `acp_agent/study_agent_acp/agent.py`, replace the entire `run_cohort_methods_
         return {
             "status": "ok",
             "recommendation": recommendation,
-            "theseus_specifications": spec,
+            "cohort_methods_specifications": spec,
             "section_rationales": rationales_out,
             "diagnostics": diagnostics,
         }
@@ -717,8 +717,8 @@ git commit -m "$(cat <<'EOF'
 refactor(acp): rewrite cohort_methods_specs flow for R shell contract
 
 Take flat IDs from the R shell, build cohortDefinitions internally for
-metadata merge, validate Theseus output, then project to the 4-key
-recommendation shape via theseus_to_shell_recommendation. Internal
+metadata merge, validate cohort-methods spec output, then project to the 4-key
+recommendation shape via cohort_methods_spec_to_shell_recommendation. Internal
 Validated spec and per-section rationales remain as response fields
 for traceability.
 
@@ -899,7 +899,7 @@ local_cohort_method_specs <- function(body) {
       ),
       defaults_snapshot = body$defaults_snapshot %||% list()
     ),
-    theseus_specifications = list(),
+    cohort_methods_specifications = list(),
     section_rationales = list(),
     diagnostics = list(
       source = "local_stub_no_acp",
@@ -924,7 +924,7 @@ git commit -m "$(cat <<'EOF'
 refactor(R): align suggestCohortMethodSpecs with cohort-methods shell contract
 
 Wrapper now sends the same flat IDs the cohort-methods R shell sends and
-parses the recommendation/theseus_specifications/section_rationales
+parses the recommendation/cohort_methods_specifications/section_rationales
 response shape. Local stub mirrors the live wire contract.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
@@ -1006,9 +1006,9 @@ def main() -> int:
 
     assert result.get("status") in {"ok", "schema_validation_error", "llm_parse_error"}, result
     assert rec.get("raw_description"), "recommendation.raw_description must be non-empty"
-    theseus = result.get("theseus_specifications") or {}
-    assert theseus.get("cohortDefinitions", {}).get("targetCohort", {}).get("id") == 1001, (
-        "client target cohort ID must be preserved in theseus_specifications"
+    cohort_methods_spec = result.get("cohort_methods_specifications") or {}
+    assert cohort_methods_spec.get("cohortDefinitions", {}).get("targetCohort", {}).get("id") == 1001, (
+        "client target cohort ID must be preserved in cohort_methods_specifications"
     )
     return 0
 
@@ -1071,16 +1071,16 @@ Note the line range. Replace the entire entry under that key with:
     response:
       status: ok | llm_parse_error | schema_validation_error
       recommendation: 4-key object (study_population, time_at_risk, propensity_score_adjustment, outcome_model) plus mode/input_method/source/status/profile_name/raw_description/deferred_inputs/defaults_snapshot
-      theseus_specifications: full cmAnalysis-shaped specification (internal traceability)
-      section_rationales: per-Theseus-section { rationale, confidence }
+      cohort_methods_specifications: full cmAnalysis-shaped specification (internal traceability)
+      section_rationales: per-cohort-methods spec-section { rationale, confidence }
       diagnostics: { llm_parse_stage, schema_valid, failed_sections, latency_ms }
     pipeline:
       - mcp.cohort_methods_prompt_bundle
       - llm
-      - core.validate_theseus_spec
+      - core.validate_cohort_methods_spec
       - core.merge_client_metadata (built from flat IDs)
       - core.validate_section + core.backfill_section_from_defaults
-      - core.theseus_to_shell_recommendation
+      - core.cohort_methods_spec_to_shell_recommendation
 ```
 
 (Adjust the indentation to match the surrounding YAML — check 2-space indentation under `flows:`.)
@@ -1124,16 +1124,16 @@ EOF
 
 **Files:** none (read-only verification)
 
-- [ ] **Step 1: Run cohort-methods + theseus targeted tests**
+- [ ] **Step 1: Run cohort-methods + cohort_methods_spec targeted tests**
 
-Run: `pytest -q -k "cohort_methods or theseus" -v`
+Run: `pytest -q -k "cohort_methods or cohort_methods_spec" -v`
 
 Expected: every test passes. The set of tests is approximately:
 - `tests/test_cohort_methods_specs_models.py` — 5 tests
 - `tests/test_acp_cohort_methods_flow.py` — 6 tests
 - `tests/test_acp_cohort_methods_route.py` — 1 test
 - `tests/test_cohort_methods_prompt_bundle.py` — unchanged baseline (≈3-5 tests)
-- `tests/test_theseus_validation.py` — baseline + 4 new tests
+- `tests/test_cohort_methods_spec_validation.py` — baseline + 4 new tests
 - (May include a few other matching files; total ≥ 41.)
 
 - [ ] **Step 2: Run the full core marker**
@@ -1176,6 +1176,6 @@ If everything was clean, do nothing; this task is just the verification gate.
 
 1. **Do not modify `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`.** That file is owned upstream and deliberately left alone here.
 2. **Keep `mcp_server/study_agent_mcp/tools/cohort_methods_prompt_bundle.py` aligned with the MCP-owned cmAnalysis assets.** The prompt bundle now sources `cmAnalysis_template.json` and field descriptions from `CM_ANALYSIS_TEMPLATE.md`.
-3. The `Tuple` import in `core/study_agent_core/theseus_validation.py` may already be present; verify before adding it.
+3. The `Tuple` import in `core/study_agent_core/cohort_methods_spec_validation.py` may already be present; verify before adding it.
 4. The `Optional` and `List` imports in `acp_agent/study_agent_acp/agent.py` are already present (used by other flow methods), so no import changes are needed there.
 5. After Task 8, the existing `feat/cohort-methods-specs` branch will have nine refactor commits on top of the original nine feature commits. They can be squashed before PR via `git rebase -i origin/main` if desired — that decision is left to the merger, not this plan.

@@ -4516,34 +4516,61 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       acp_request_body <- list(
         study_intent = studyIntent,
         study_description = analytic_settings_description,
-        analytic_settings_description = analytic_settings_description,
-        target_cohort_id = as.integer(targetCohortId),
-        comparator_cohort_id = as.integer(comparatorCohortId),
-        outcome_cohort_ids = as.list(as.integer(outcomeCohortIds)),
-        comparison_label = comparisonLabel,
-        defaults_snapshot = effective_analytic_settings
+        analytic_settings_description = analytic_settings_description
       )
       if (isTRUE(interactive)) {
         cat("Calling ACP flow: cohort_methods_specifications_recommendation\n")
       } else {
         message("Calling ACP flow: cohort_methods_specifications_recommendation")
       }
-      acp_specifications_response <- call_cohort_methods_specifications_recommendation(
-        acp_url = acpUrl,
-        body = acp_request_body,
-        defaults_snapshot = effective_analytic_settings,
-        input_method = analytic_settings_input_method
-      )
-      write_json(acp_specifications_response, cm_acp_specifications_recommendation_path)
-      analytic_settings_acp_response_path <- cm_acp_specifications_recommendation_path
-      analytic_settings_recommendation_source <- as.character(acp_specifications_response$source %||% "unknown")
 
-      analytic_settings_recommendation <- acp_specifications_response$recommendation %||%
+      ensure_acp_ready(acpUrl)
+      shell_suggestion_response <- tryCatch(
+        suggestCohortMethodSpecs(
+          studyIntent = acp_request_body$study_intent,
+          analyticSettingsDescription = acp_request_body$analytic_settings_description,
+          interactive = FALSE
+        ),
+        error = function(e) {
+          list(
+            source = "stub_no_acp",
+            status = "stub",
+            error = conditionMessage(e),
+            message = "ACP flow failed. Returning placeholder cohort methods specifications recommendation.",
+            request = acp_request_body
+          )
+        }
+      )
+      recommendation <- shell_suggestion_response$recommendation %||%
+        shell_suggestion_response$response$recommendation %||%
+        shell_suggestion_response$response$recommendations %||%
+        shell_suggestion_response$response$cohort_methods_specifications_recommendation %||%
+        shell_suggestion_response$cohort_methods_specifications_recommendation %||%
         build_dummy_analytic_settings_recommendation(
-          description = analytic_settings_description,
+          description = acp_request_body$analytic_settings_description,
           defaults_snapshot = effective_analytic_settings,
           input_method = analytic_settings_input_method
         )
+      if (is.null(recommendation$defaults_snapshot) || length(recommendation$defaults_snapshot) == 0) {
+        recommendation$defaults_snapshot <- effective_analytic_settings
+      }
+      recommendation_source <- as.character(
+        if (identical(shell_suggestion_response$source, "stub_no_acp")) "stub_acp_placeholder"
+        else shell_suggestion_response$source %||% "acp_flow"
+      )
+      acp_specifications_response <- list(
+        flow = "cohort_methods_specifications_recommendation",
+        source = recommendation_source,
+        status = shell_suggestion_response$status %||% "received",
+        request = acp_request_body,
+        response = shell_suggestion_response,
+        recommendation = recommendation
+      )
+
+      write_json(acp_specifications_response, cm_acp_specifications_recommendation_path)
+      analytic_settings_acp_response_path <- cm_acp_specifications_recommendation_path
+      analytic_settings_recommendation_source <- as.character(acp_specifications_response$source %||% "unknown")
+      analytic_settings_recommendation <- recommendation
       write_json(analytic_settings_recommendation, cm_analytic_settings_recommendation_path)
       analytic_settings_recommendation_path <- cm_analytic_settings_recommendation_path
 
@@ -4561,9 +4588,13 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
 
       if (identical(analytic_settings_recommendation_source, "acp_flow") &&
           identical(as.character(acp_specifications_response$response$status %||% acp_specifications_response$status %||% "unknown"), "ok")) {
+        recommendation_defaults_snapshot <- analytic_settings_recommendation$defaults_snapshot
+        if (is.null(recommendation_defaults_snapshot) || length(recommendation_defaults_snapshot) == 0) {
+          recommendation_defaults_snapshot <- effective_analytic_settings
+        }
         effective_analytic_settings <- shell_settings_from_acp_recommendation(
           analytic_settings_recommendation,
-          analytic_settings_recommendation$defaults_snapshot %||% effective_analytic_settings
+          recommendation_defaults_snapshot
         )
       } else {
         effective_analytic_settings$profile_name <- as.character(

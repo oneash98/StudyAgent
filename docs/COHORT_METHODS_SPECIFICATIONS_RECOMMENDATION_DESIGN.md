@@ -1,54 +1,52 @@
 # Cohort Methods Specifications Recommendation — Design
 
-**Status:** active. Supersedes the earlier draft that targeted a Theseus-shaped wire contract.
+**Status:** active. Supersedes the earlier draft that targeted a spec-shaped wire contract.
 
 **Owner of consuming side:** the cohort-methods shell (`R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`).
 **Owner of this flow:** Minseong (Python core/MCP/ACP plus the standalone R wrapper).
 
 ## 1. Overview
 
-The cohort-methods R shell already calls
-`POST /flows/cohort_methods_specifications_recommendation` (line 2948 in `strategus_cohort_methods_shell.R`)
-when free-text analytic settings mode runs and ACP is connected. If the endpoint is missing or returns an unexpected shape, the shell falls back to a local dummy and the rest of the run continues with placeholder analytic settings.
+The cohort-methods R shell calls `suggestCohortMethodSpecs()` in free-text analytic settings mode. The wrapper posts to `/flows/cohort_methods_specifications_recommendation` when ACP is connected. If ACP is unavailable or returns an unexpected shape, the shell falls back to a local dummy and the rest of the run continues with placeholder analytic settings.
 
 This document defines that endpoint's wire contract, the internal pipeline, and the standalone R wrapper that mirrors it.
 
-The contract is fixed by what the cohort-methods shell already sends and what it parses back — that is the source of truth. Earlier drafts of this design proposed a Theseus-shaped envelope; that has been retired in favor of the shell's flat, four-section "recommendation" shape.
+The contract is fixed by what the R wrapper sends and what the cohort-methods shell parses back — that is the source of truth. Earlier drafts of this design proposed a spec-shaped envelope; that has been retired in favor of the shell's flat, four-section "recommendation" shape.
 
 ## 2. Goals
 
-1. Endpoint accepts the request body the cohort-methods shell builds at line 4222–4231 of the R shell, **byte-for-byte**, with no shell changes.
+1. Endpoint accepts the analytic-settings-focused request body built by `suggestCohortMethodSpecs()`.
 2. Endpoint returns a response whose top-level `recommendation` key matches the shape of the cohort-methods shell's `build_dummy_analytic_settings_recommendation()` (line 2888–2907) so the shell's existing `response$recommendation %||% …` salvage logic stabilizes on real ACP output.
 3. Internally, the LLM is steered by the MCP-owned `cmAnalysis_template.json` plus field descriptions sliced from `CM_ANALYSIS_TEMPLATE.md`.
-4. Every flat cohort ID in the request is merged into the traceability spec as `cohortDefinitions` so client metadata wins over LLM drift, exactly as in earlier drafts.
+4. Optional flat cohort IDs are still accepted by the Python endpoint for non-wrapper clients and are merged into the traceability spec as `cohortDefinitions` when present.
 5. Standalone callers (R or Python, outside the cohort-methods shell) get the same wire contract via `OHDSIAssistant::suggestCohortMethodSpecs()`.
 
 ## 3. Non-Goals
 
-1. **No edits to `strategus_cohort_methods_shell.R`.** The cohort-methods shell is left intact.
-2. No replacement of the cohort-methods `cohort_methods_intent_split` flow — that already lives in `main` and is upstream of this flow.
-3. No interactive `step_by_step` ACP path. The cohort-methods shell only calls ACP from the `free_text` branch; that is the only path this flow needs to serve.
-4. No generation of Strategus R execution code from the recommendation. `06_cm_spec.R` continues to read `cm_analysis_defaults.json`. Wiring `cmAnalysis.json` into the generated script is STATUS_KO §5.9 work and is out of scope here.
-5. No PHI/Keeper sanitization step. Inputs are cohort/concept-set IDs (metadata) and user-authored free-text — same judgment as `phenotype_recommendation`.
+1. No replacement of the cohort-methods `cohort_methods_intent_split` flow — that already lives in `main` and is upstream of this flow.
+2. No interactive `step_by_step` ACP path. The cohort-methods shell only calls ACP from the `free_text` branch; that is the only path this flow needs to serve.
+3. No generation of Strategus R execution code from the recommendation. `06_cm_spec.R` continues to read `cm_analysis_defaults.json`. Wiring `cmAnalysis.json` into the generated script is STATUS_KO §5.9 work and is out of scope here.
+4. No PHI/Keeper sanitization step. Inputs are user-authored free-text plus optional cohort/concept-set IDs for non-wrapper clients — same judgment as `phenotype_recommendation`.
 
 ## 4. Data Flow
 
 ```
-Cohort-methods R shell (free_text mode, ACP connected)
-  → .acp_post("/flows/cohort_methods_specifications_recommendation", body)
+Cohort-methods R shell (free_text mode)
+  → suggestCohortMethodSpecs(studyIntent, analyticSettingsDescription, interactive = FALSE)
+    → .acp_post("/flows/cohort_methods_specifications_recommendation", body)
     → ACP route handler
       → CohortMethodSpecsRecommendationInput (pydantic)
       → MCP cohort_methods_prompt_bundle  (cmAnalysis template + field descriptions + defaults_spec)
       → build prompt (<Text>, <Study Intent>, <Analysis Specifications Template>, <JSON Fields Descriptions>, <Output Style>)
       → LLM call → fenced JSON { specifications, sectionRationales }
-      → core.validate_theseus_spec  # legacy helper name; validates cmAnalysis-shaped specs
+      → core.validate_cohort_methods_spec
       → build internal cohort_definitions from flat IDs → core.merge_client_metadata
       → per-section validate + backfill_section_from_defaults
-      → core.theseus_to_shell_recommendation(...)
-    ← { status, recommendation: { ... shell shape ... }, theseus_specifications, section_rationales, diagnostics }
+      → core.cohort_methods_spec_to_shell_recommendation(...)
+    ← { status, recommendation: { ... shell shape ... }, cohort_methods_specifications, section_rationales, diagnostics }
 ```
 
-The cohort-methods shell wraps the response further (line 2972–2979):
+The cohort-methods shell wraps the response further before writing ACP artifacts:
 
 ```r
 list(flow, source = "acp_flow", status = "received", request, response, recommendation = response$recommendation)
@@ -60,27 +58,21 @@ So the only field the shell reads off our payload at orchestration time is `resp
 
 ### 5.1 Request
 
-The body is exactly what the cohort-methods shell builds at line 4222–4231. Field names are snake_case at the boundary.
+The R wrapper sends only study context and the analytic settings description. Field names are snake_case at the boundary.
 
 ```json
 {
   "study_intent":                    "string | null",
   "study_description":               "string | null",
-  "analytic_settings_description":   "string (required, non-empty)",
-  "target_cohort_id":                123,
-  "comparator_cohort_id":            456,
-  "outcome_cohort_ids":              [789],
-  "comparison_label":                "string | null",
-  "defaults_snapshot":               { "...": "nested analytic settings as the shell built them" }
+  "analytic_settings_description":   "string (required, non-empty)"
 }
 ```
 
 Notes:
 
 1. `study_description` and `analytic_settings_description` carry the same string in the cohort-methods shell. The endpoint requires `analytic_settings_description`; `study_description` is accepted but ignored if `analytic_settings_description` is present.
-2. `outcome_cohort_ids` is a JSON array even when there is only one outcome.
-3. `defaults_snapshot` is `effective_analytic_settings` from the shell — a nested R list serialized by jsonlite. The endpoint does not validate its inner structure; it is passed through to the response.
-4. There is **no** `cohort_definitions`, `negative_control_concept_set`, `covariate_selection`, or `current_specifications` field on the wire. Internal processing builds `cohortDefinitions` from the flat IDs for traceability.
+2. The Python endpoint remains backward-tolerant of optional `target_cohort_id`, `comparator_cohort_id`, `outcome_cohort_ids`, `comparison_label`, and `defaults_snapshot` fields for non-wrapper clients, but the R wrapper does not send them.
+3. There is **no** `cohort_definitions`, `negative_control_concept_set`, `covariate_selection`, or `current_specifications` field on the wire.
 
 ### 5.2 Response
 
@@ -105,7 +97,7 @@ Notes:
     },
     "defaults_snapshot":             "echo of request.defaults_snapshot"
   },
-  "theseus_specifications": { "...": "full cmAnalysis-shaped specification; legacy field name for traceability" },
+  "cohort_methods_specifications": { "...": "full cmAnalysis-shaped specification for traceability" },
   "section_rationales": {
     "study_population":             { "rationale": "...", "confidence": "high|medium|low" },
     "time_at_risk":                 { "rationale": "...", "confidence": "high|medium|low" },
@@ -125,21 +117,21 @@ Notes:
 
 1. `"ok"` and `failed_sections == []` — LLM output passed every check.
 2. `"ok"` and `failed_sections` non-empty — top-level cmAnalysis structure was valid; listed sections failed their rule check, were backfilled from defaults, and `recommendation.status` becomes `"backfilled"`. Affected `section_rationales[*].confidence` is forced to `"low"`.
-3. `"schema_validation_error"` — top-level cmAnalysis keys missing. `theseus_specifications` is the full defaults; `recommendation` is built from defaults. `recommendation.status == "backfilled"`.
+3. `"schema_validation_error"` — top-level cmAnalysis keys missing. `cohort_methods_specifications` is the full defaults; `recommendation` is built from defaults. `recommendation.status == "backfilled"`.
 4. `"llm_parse_error"` — JSON could not be extracted/decoded, or the request had no description. Same fallback as (3).
 
-`recommendation.input_method` is set to `"typed_text"` unless the client opts to pass a different value via the wrapper (R-side detail). The server accepts the field through `defaults_snapshot.input_method` as a soft hint; if absent it defaults to `"typed_text"`.
+`recommendation.input_method` is set to `"typed_text"` unless a non-wrapper client passes `defaults_snapshot.input_method` as a soft hint.
 
-The shell's wrapper status (`"stub"` when `acp_state$url` is NULL) is a wrapper-side extension. The server enum is strictly the four values above.
+The shell's wrapper status (`"stub"` when `acp_state$url` is NULL) is a wrapper-side extension. The server enum is strictly the three values above.
 
-## 6. cmAnalysis → Shell Mapping (`theseus_to_shell_recommendation`)
+## 6. cmAnalysis → Shell Mapping (`cohort_methods_spec_to_shell_recommendation`)
 
-A pure helper added to `core/study_agent_core/theseus_validation.py`:
+A pure helper added to `core/study_agent_core/cohort_methods_spec_validation.py`:
 
 ```python
-def theseus_to_shell_recommendation(
+def cohort_methods_spec_to_shell_recommendation(
     *,
-    theseus_spec: Dict[str, Any],
+    cohort_methods_spec: Dict[str, Any],
     raw_description: str,
     defaults_snapshot: Dict[str, Any],
     profile_name: str,
@@ -157,7 +149,7 @@ Mapping rules:
 5. `deferred_inputs` is constant — three `"implemented"` strings, mirroring the shell's dummy builder so the shell's introspection finds the same keys.
 6. `defaults_snapshot` is the request's pass-through.
 
-Note: the response field remains named `theseus_specifications` for compatibility with the existing wire contract, but its contents are now the validated cmAnalysis-shaped specification plus merged client metadata.
+`cohort_methods_specifications` contains the validated cmAnalysis-shaped specification plus any merged client metadata supplied by non-wrapper clients.
 
 ## 7. Internal Pipeline (Pseudocode)
 
@@ -197,7 +189,7 @@ def run_cohort_methods_specs_recommendation_flow(
         return _fallback("llm_parse_error", ..., diagnostics_stage="json_extract_failed | json_decode_failed")
 
     spec = payload["specifications"]
-    ok_top, missing = validate_theseus_spec(spec)
+    ok_top, missing = validate_cohort_methods_spec(spec)
     if not ok_top:
         return _fallback("schema_validation_error", ..., missing_keys=missing)
 
@@ -217,8 +209,8 @@ def run_cohort_methods_specs_recommendation_flow(
             rationales_out[section] = _normalize_rationale(rationales_in.get(section))
 
     rec_status = "backfilled" if failed_sections else "received"
-    recommendation = theseus_to_shell_recommendation(
-        theseus_spec=spec,
+    recommendation = cohort_methods_spec_to_shell_recommendation(
+        cohort_methods_spec=spec,
         raw_description=analytic_settings_description,
         defaults_snapshot=defaults_snapshot or {},
         profile_name=spec.get("name") or "Recommended from free-text description",
@@ -228,7 +220,7 @@ def run_cohort_methods_specs_recommendation_flow(
     return {
         "status": "ok",
         "recommendation": recommendation,
-        "theseus_specifications": spec,
+        "cohort_methods_specifications": spec,
         "section_rationales": rationales_out,
         "diagnostics": { "llm_parse_stage": "ok", "schema_valid": True,
                          "failed_sections": failed_sections, "latency_ms": ... },
@@ -268,29 +260,24 @@ CohortMethodSpecsStatus = Literal["ok", "llm_parse_error", "schema_validation_er
 class CohortMethodSpecsRecommendationOutput(BaseModel):
     status: CohortMethodSpecsStatus
     recommendation: Dict[str, Any] = Field(default_factory=dict)
-    theseus_specifications: Optional[Dict[str, Any]] = None
+    cohort_methods_specifications: Optional[Dict[str, Any]] = None
     section_rationales: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
 ```
 
-`section_rationales` (snake_case) is the new wire field. The earlier `sectionRationales` (camelCase) was specific to a Theseus-out wire contract and is dropped.
+`section_rationales` (snake_case) is the new wire field. The earlier `sectionRationales` (camelCase) was specific to a cohort-methods spec-out wire contract and is dropped.
 
 ## 9. R Wrapper (`suggestCohortMethodSpecs`)
 
-File: `R/OHDSIAssistant/R/cohort_methods_workflow.R`. The cohort-methods shell does **not** call this wrapper — the shell builds its own body and `.acp_post`s directly. The wrapper exists for standalone R use, smoke testing, and parity across `OHDSIAssistant::suggest*` helpers.
+File: `R/OHDSIAssistant/R/cohort_methods_workflow.R`. The cohort-methods shell uses this wrapper in `free_text` analytic-settings mode, and standalone R callers can use the same helper directly.
 
 Signature:
 
 ```r
 suggestCohortMethodSpecs(
+  studyIntent,
   analyticSettingsDescription,
-  targetCohortId      = NULL,
-  comparatorCohortId  = NULL,
-  outcomeCohortIds    = NULL,
-  comparisonLabel     = NULL,
-  defaultsSnapshot    = NULL,
-  studyIntent         = NULL,
-  interactive         = TRUE
+  interactive = TRUE
 )
 ```
 
@@ -299,20 +286,19 @@ Body matches §5.1 verbatim. When `acp_state$url` is NULL, returns a local stub 
 ## 10. Files Modified
 
 1. `core/study_agent_core/models.py` — replace `CohortMethodSpecsRecommendationInput` and `CohortMethodSpecsRecommendationOutput`.
-2. `core/study_agent_core/theseus_validation.py` — add `theseus_to_shell_recommendation()`.
+2. `core/study_agent_core/cohort_methods_spec_validation.py` — add `cohort_methods_spec_to_shell_recommendation()`.
 3. `acp_agent/study_agent_acp/agent.py` — rewrite `run_cohort_methods_specs_recommendation_flow()`.
 4. `acp_agent/study_agent_acp/server.py` — update the route handler at `/flows/cohort_methods_specifications_recommendation` to pass the new field names.
 5. `R/OHDSIAssistant/R/cohort_methods_workflow.R` — rewrite `suggestCohortMethodSpecs()` and `local_cohort_method_specs()`.
 6. `R/OHDSIAssistant/README.md` — refresh the usage block in §"Cohort method specifications" to match the new signature.
 7. `tests/test_cohort_methods_specs_models.py` — replace fixtures.
 8. `tests/test_acp_cohort_methods_flow.py` — replace fixtures and assertions.
-9. `tests/test_theseus_validation.py` — add coverage for `theseus_to_shell_recommendation()`.
+9. `tests/test_cohort_methods_spec_validation.py` — add coverage for `cohort_methods_spec_to_shell_recommendation()`.
 10. `tests/cohort_methods_specs_flow_smoke_test.py` — replace request body.
 11. `docs/SERVICE_REGISTRY.yaml` — update the `cohort_methods_specifications_recommendation` entry's request/response sketch.
 
 Files **not** modified:
 
-- `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R` (cohort-methods shell territory).
 - `mcp_server/study_agent_mcp/tools/cohort_methods_prompt_bundle.py` (the bundle now serves MCP-owned cmAnalysis assets).
 - `mcp_server/prompts/cohort_methods/cmAnalysis_template.json`.
 - `tests/test_cohort_methods_prompt_bundle.py` (bundle behavior unchanged).
@@ -323,8 +309,8 @@ Files **not** modified:
 With MCP, ACP, and Ollama all running, and with the cohort-methods shell `acp_connect()`'d to the ACP URL:
 
 1. Shell enters the free-text branch of analytic settings collection.
-2. Shell calls `.acp_post("/flows/cohort_methods_specifications_recommendation", body)` with the §5.1 body.
-3. Endpoint returns `{ status, recommendation, theseus_specifications, section_rationales, diagnostics }`.
+2. Shell calls `suggestCohortMethodSpecs(..., interactive = FALSE)`, which posts the §5.1 body to ACP.
+3. Endpoint returns `{ status, recommendation, cohort_methods_specifications, section_rationales, diagnostics }`.
 4. Shell reads `response$recommendation`, writes the full response to `outputs/cm_acp_specifications_recommendation.json`, and writes `recommendation` itself to `outputs/cm_analytic_settings_recommendation.json`.
 5. Shell uses `recommendation$profile_name` to update the `effective_analytic_settings` profile name. The other four section keys (`study_population`, …, `outcome_model`) are persisted to JSON but **not** merged into `effective_analytic_settings`. Generated `06_cm_spec.R` continues to read `cm_analysis_defaults.json`.
 
@@ -333,9 +319,9 @@ With MCP, ACP, and Ollama all running, and with the cohort-methods shell `acp_co
 ## 12. Test Strategy
 
 1. `tests/test_cohort_methods_specs_models.py` — flat fields parse, missing description rejected, output validates shell shape.
-2. `tests/test_theseus_validation.py` — new unit tests on `theseus_to_shell_recommendation()`: TAR fields land only in `time_at_risk`; non-TAR `createStudyPopArgs` fields land in `study_population`; `cohortMethodDataArgs` nests under `study_population`; entire PS and outcome model subtrees pass through; `rec_status` field is honored; `defaults_snapshot` is echoed.
-3. `tests/test_acp_cohort_methods_flow.py` — happy path emits shell shape; backfill flips `recommendation.status` to `"backfilled"`; client cohort IDs survive into `theseus_specifications.cohortDefinitions`; missing description short-circuits to `llm_parse_error`; MCP failure raises.
-4. `tests/cohort_methods_specs_flow_smoke_test.py` — live request body matches §5.1; assertion: `result["recommendation"]["raw_description"]` is non-empty and `result["theseus_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == request.target_cohort_id`.
+2. `tests/test_cohort_methods_spec_validation.py` — new unit tests on `cohort_methods_spec_to_shell_recommendation()`: TAR fields land only in `time_at_risk`; non-TAR `createStudyPopArgs` fields land in `study_population`; `cohortMethodDataArgs` nests under `study_population`; entire PS and outcome model subtrees pass through; `rec_status` field is honored; `defaults_snapshot` is echoed.
+3. `tests/test_acp_cohort_methods_flow.py` — happy path emits shell shape; backfill flips `recommendation.status` to `"backfilled"`; client cohort IDs survive into `cohort_methods_specifications.cohortDefinitions`; missing description short-circuits to `llm_parse_error`; MCP failure raises.
+4. `tests/cohort_methods_specs_flow_smoke_test.py` — live request body matches §5.1; assertion: `result["recommendation"]["raw_description"]` is non-empty and `result["cohort_methods_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == request.target_cohort_id`.
 5. `dodo.py smoke_cohort_methods_specs_recommend_flow` — unchanged invocation; passes when ACP+MCP+LLM are up.
 
 ## 13. Out of Scope (Deferred / Other Owners)

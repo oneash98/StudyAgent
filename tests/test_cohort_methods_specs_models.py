@@ -48,7 +48,7 @@ def test_output_defaults() -> None:
     out = CohortMethodSpecsRecommendationOutput(status="ok")
     assert out.status == "ok"
     assert out.recommendation == {}
-    assert out.theseus_specifications is None
+    assert out.cohort_methods_specifications is None
     assert out.section_rationales == {}
     assert out.diagnostics == {}
 

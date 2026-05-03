@@ -228,13 +228,13 @@ services:
     response:
       status: ok | llm_parse_error | schema_validation_error
       recommendation: 4-key object (study_population, time_at_risk, propensity_score_adjustment, outcome_model) plus mode/input_method/source/status/profile_name/raw_description/deferred_inputs/defaults_snapshot
-      theseus_specifications: full cmAnalysis-shaped specification (legacy field name, internal traceability)
+      cohort_methods_specifications: full cmAnalysis-shaped specification (internal traceability)
       section_rationales: per-shell-section { rationale, confidence }
       diagnostics: { llm_parse_stage, schema_valid, failed_sections, latency_ms }
     pipeline:
       - mcp.cohort_methods_prompt_bundle
       - llm
-      - core.validate_theseus_spec (validates the cmAnalysis-shaped spec)
+      - core.validate_cohort_methods_spec (validates the cmAnalysis-shaped spec)
       - core.merge_client_metadata (built from flat IDs)
       - core.validate_section + core.backfill_section_from_defaults
-      - core.theseus_to_shell_recommendation
+      - core.cohort_methods_spec_to_shell_recommendation

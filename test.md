@@ -2,8 +2,9 @@
 
 **검증 대상:**
 1. ACP endpoint + MCP 구현 (`/flows/cohort_methods_specifications_recommendation`)
-2. `runStrategusCohortMethodsShell` `free_text` 모드 (ACP 호출함)
-3. `runStrategusCohortMethodsShell` `step_by_step` 모드 (ACP 호출 **안** 함)
+2. `suggestCohortMethodSpecs()` R wrapper (study intent + analytic settings description만 전달)
+3. `runStrategusCohortMethodsShell` `free_text` 모드 (wrapper를 통해 ACP 호출함)
+4. `runStrategusCohortMethodsShell` `step_by_step` 모드 (ACP 호출 **안** 함)
 
 ---
 
@@ -44,7 +45,32 @@ FAIL: `llm_parse_error` / `schema_validation_error` / `recommendation.status: ba
 
 ---
 
-## 2. `runStrategusCohortMethodsShell` — `free_text` 모드
+## 2. `suggestCohortMethodSpecs()` R wrapper
+
+R REPL에서:
+```r
+library(OHDSIAssistant); acp_connect("http://127.0.0.1:8765")
+res <- suggestCohortMethodSpecs(
+  studyIntent = "Compare sitagliptin vs glipizide new users for AMI.",
+  analyticSettingsDescription = "365-day washout, 1:1 PS match (caliper 0.2, standardized logit), Cox.",
+  interactive = TRUE
+)
+```
+
+**PASS (3가지 모두):**
+- 콘솔에 `== Cohort Method Specifications ==`와 비어있지 않은 profile/status가 보임.
+- 콘솔에 `[Study Population]`, `[Time At Risk]`, `[Propensity Score Adjustment]`, `[Outcome Model]` 섹션별 analytic settings summary가 보임.
+- `res$status`가 `"ok"`.
+- 아래 R 결과가 모두 `TRUE`:
+  ```r
+  identical(names(res$request), c("study_intent", "study_description", "analytic_settings_description"))
+  !("target_cohort_id" %in% names(res$request))
+  !("defaults_snapshot" %in% names(res$request))
+  ```
+
+---
+
+## 3. `runStrategusCohortMethodsShell` — `free_text` 모드
 
 별도 터미널에서 MCP + ACP 가동 (백그라운드):
 ```bash
@@ -89,19 +115,25 @@ runStrategusCohortMethodsShell(
 - `~/cm-test/free_text/outputs/cm_acp_specifications_recommendation.json` 생성.
 - 아래 jq 결과:
   ```bash
-  jq '.source, .status, .recommendation.status, .response.theseus_specifications.cohortDefinitions.targetCohort.id' \
+  jq '.source, .status, .recommendation.status, (.request | keys), (.request | has("target_cohort_id")), (.request | has("defaults_snapshot"))' \
     ~/cm-test/free_text/outputs/cm_acp_specifications_recommendation.json
   ```
   ```
   "acp_flow"
   "received"
   "received"
-  1001
+  [
+    "analytic_settings_description",
+    "study_description",
+    "study_intent"
+  ]
+  false
+  false
   ```
 
 ---
 
-## 3. `runStrategusCohortMethodsShell` — `step_by_step` 모드
+## 4. `runStrategusCohortMethodsShell` — `step_by_step` 모드
 
 R REPL에서:
 ```r
@@ -136,4 +168,4 @@ runStrategusCohortMethodsShell(
 
 - ACP/MCP 로그: `/tmp/study_agent_acp_*.log`, `/tmp/study_agent_mcp_*.log`
 - 디스크 아티팩트: `<outputDir>/outputs/*.json`
-- 회귀: `.venv/bin/pytest -q -k "cohort_methods or theseus"` → 41 passed
+- 회귀: `.venv/bin/pytest -q -k "cohort_methods or cohort_methods_spec"`

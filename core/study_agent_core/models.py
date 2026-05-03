@@ -291,7 +291,7 @@ CohortMethodSpecsStatus = Literal["ok", "llm_parse_error", "schema_validation_er
 class CohortMethodSpecsRecommendationOutput(BaseModel):
     status: CohortMethodSpecsStatus
     recommendation: Dict[str, Any] = Field(default_factory=dict)
-    theseus_specifications: Optional[Dict[str, Any]] = None
+    cohort_methods_specifications: Optional[Dict[str, Any]] = None
     section_rationales: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
 

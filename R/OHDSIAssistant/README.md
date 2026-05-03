@@ -66,17 +66,13 @@ It generates scripts under `demo-strategus-cohort-incidence/scripts/` following 
 
 ## Suggesting Cohort Method Specifications
 
+Use this helper to derive cohort method analytic settings from a study intent and an analytic settings description.
+
 ```r
 acp_connect("http://127.0.0.1:8765")
 res <- suggestCohortMethodSpecs(
+  studyIntent = "CV outcomes comparative effectiveness",
   analyticSettingsDescription = "365-day washout, 1:1 PS match, Cox",
-  targetCohortId      = 1001,
-  comparatorCohortId  = 1002,
-  outcomeCohortIds    = c(2001),
-  comparisonLabel     = "Sitagliptin vs Glipizide",
-  defaultsSnapshot    = list(profile_name = "default", input_method = "typed_text"),
-  studyIntent         = "CV outcomes comparative effectiveness"
+  interactive = TRUE
 )
-res$recommendation$profile_name
-res$recommendation$study_population
 ```

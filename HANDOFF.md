@@ -43,17 +43,17 @@
 - Because cmAnalysis uses separate PS top-level fields (`trimByPsArgs`, `matchOnPsArgs`,
   `stratifyByPsArgs`, `createPsArgs`), ACP validates/backfills those together under the
   single `propensityScoreAdjustment` internal section.
-- The response field name `theseus_specifications` is still preserved for compatibility, but it now
+- The response field name `cohort_methods_specifications` is still preserved for compatibility, but it now
   contains the validated cmAnalysis-shaped specification plus merged client metadata.
-- `theseus_to_hanjae_recommendation()` was renamed to `theseus_to_shell_recommendation()`;
+- `cohort_methods_spec_to_hanjae_recommendation()` was renamed to `cohort_methods_spec_to_shell_recommendation()`;
   no `hanjae` naming should remain in code/docs/tests.
 
 ### Current Verification
 
 - Passed:
-  - `python -m py_compile mcp_server/study_agent_mcp/tools/cohort_methods_prompt_bundle.py acp_agent/study_agent_acp/agent.py core/study_agent_core/theseus_validation.py`
+  - `python -m py_compile mcp_server/study_agent_mcp/tools/cohort_methods_prompt_bundle.py acp_agent/study_agent_acp/agent.py core/study_agent_core/cohort_methods_spec_validation.py`
   - `python -m json.tool mcp_server/prompts/cohort_methods/cmAnalysis_template.json`
-  - `python -m pytest -q tests/test_cohort_methods_prompt_bundle.py tests/test_theseus_validation.py tests/test_acp_cohort_methods_flow.py tests/test_cohort_methods_specs_models.py` → 32 passed
+  - `python -m pytest -q tests/test_cohort_methods_prompt_bundle.py tests/test_cohort_methods_spec_validation.py tests/test_acp_cohort_methods_flow.py tests/test_cohort_methods_specs_models.py` → 32 passed
   - `python -m pytest -q tests/test_mcp_tools_registry.py::test_register_all_tools tests/test_acp_cohort_methods_route.py` → 2 passed
   - `Rscript -e "source('R/OHDSIAssistant/R/strategus_cohort_methods_shell.R')"`
   - `git diff --check`
@@ -66,7 +66,7 @@
   - `mcp_server/prompts/cohort_methods/cmAnalysis_template.json`
   - `mcp_server/prompts/cohort_methods/CM_ANALYSIS_TEMPLATE.md`
   - `acp_agent/study_agent_acp/agent.py`
-  - `core/study_agent_core/theseus_validation.py`
+  - `core/study_agent_core/cohort_methods_spec_validation.py`
   - `R/OHDSIAssistant/R/strategus_cohort_methods_shell.R`
   - `R/OHDSIAssistant/R/cohort_methods_workflow.R`
   - `docs/SERVICE_REGISTRY.yaml`
@@ -74,7 +74,7 @@
   - `docs/COHORT_METHODS_SPECIFICATIONS_RECOMMENDATION_PLAN.md`
   - `tests/test_cohort_methods_prompt_bundle.py`
   - `tests/test_acp_cohort_methods_flow.py`
-  - `tests/test_theseus_validation.py`
+  - `tests/test_cohort_methods_spec_validation.py`
 - Deleted old template paths:
   - `R/OHDSIAssistant/inst/templates/cmAnalysis_template.json`
   - `R/OHDSIAssistant/inst/templates/CM_ANALYSIS_TEMPLATE.md`
@@ -473,11 +473,11 @@
 
 ### 한 일
 
-- **Pydantic envelope 재정렬** (`core/study_agent_core/models.py`): nested `cohort_definitions` / `negative_control_concept_set` / `covariate_selection` / `current_specifications` → flat IDs (`target_cohort_id`, `comparator_cohort_id`, `outcome_cohort_ids`, `comparison_label`, `defaults_snapshot`). 응답 모양도 `specifications` / `sectionRationales`(camelCase) → `recommendation` / `theseus_specifications` / `section_rationales` triple.
-- **Theseus → Shell projector 추가** (`core/study_agent_core/theseus_validation.py`): `theseus_to_shell_recommendation()` 순수 헬퍼. TAR 4개 키 → `time_at_risk`, 나머지 `createStudyPopArgs` + `getDbCohortMethodDataArgs` → `study_population.cohortMethodDataArgs`. 모두 deepcopy.
-- **ACP flow handler 재작성** (`acp_agent/study_agent_acp/agent.py:411`): flat IDs 입력, 내부에서 `cohortDefinitions` 조립 → `merge_client_metadata` (LLM drift override) → 섹션별 validate/backfill → projector. Theseus 문서는 `theseus_specifications`로 traceability 유지.
+- **Pydantic envelope 재정렬** (`core/study_agent_core/models.py`): nested `cohort_definitions` / `negative_control_concept_set` / `covariate_selection` / `current_specifications` → flat IDs (`target_cohort_id`, `comparator_cohort_id`, `outcome_cohort_ids`, `comparison_label`, `defaults_snapshot`). 응답 모양도 `specifications` / `sectionRationales`(camelCase) → `recommendation` / `cohort_methods_specifications` / `section_rationales` triple.
+- **cohort-methods spec → Shell projector 추가** (`core/study_agent_core/cohort_methods_spec_validation.py`): `cohort_methods_spec_to_shell_recommendation()` 순수 헬퍼. TAR 4개 키 → `time_at_risk`, 나머지 `createStudyPopArgs` + `getDbCohortMethodDataArgs` → `study_population.cohortMethodDataArgs`. 모두 deepcopy.
+- **ACP flow handler 재작성** (`acp_agent/study_agent_acp/agent.py:411`): flat IDs 입력, 내부에서 `cohortDefinitions` 조립 → `merge_client_metadata` (LLM drift override) → 섹션별 validate/backfill → projector. cohort-methods spec 문서는 `cohort_methods_specifications`로 traceability 유지.
 - **ACP HTTP route 갱신** (`acp_agent/study_agent_acp/server.py:285`): 새 Pydantic 필드 그대로 통과.
-- **R 래퍼 정렬** (`R/OHDSIAssistant/R/cohort_methods_workflow.R`): `suggestCohortMethodSpecs()`가 셸이 보내는 flat body 그대로 전송, `recommendation` / `theseus_specifications` / `section_rationales` 응답 파싱. 로컬 stub도 wire 모양 그대로.
+- **R 래퍼 정렬** (`R/OHDSIAssistant/R/cohort_methods_workflow.R`): `suggestCohortMethodSpecs()`가 셸이 보내는 flat body 그대로 전송, `recommendation` / `cohort_methods_specifications` / `section_rationales` 응답 파싱. 로컬 stub도 wire 모양 그대로.
 - **Bug fix:** flow가 존재하지 않는 `parsed_payload` 속성을 보고 있어서 모든 실제 LLM 응답이 fallback(`backfilled`)으로 떨어지던 문제 수정 → `parsed_content` 사용 + fenced-block 폴백을 `content_text`(메시지 본문)에서 추출. MagicMock 테스트도 `parsed_content`로 맞춰 회귀 가능하게.
 - 스모크/`SERVICE_REGISTRY.yaml`/`R/OHDSIAssistant/README.md`/모식도/테스트 런북 업데이트.
 
@@ -485,7 +485,7 @@
 
 `test.md` 참조해서 그대로 따라가면 됨:
 
-1. **Pre-flight** — env, `pip install -e .`, R 패키지, `pytest -k "cohort_methods or theseus"` 41 passed.
+1. **Pre-flight** — env, `pip install -e .`, R 패키지, `pytest -k "cohort_methods or cohort_methods_spec"` 41 passed.
 2. **ACP endpoint + MCP** — `doit smoke_cohort_methods_specs_recommend_flow` → `status: ok`, 4섹션 high|medium.
 3. **Shell free_text 모드** — R REPL에서 `runStrategusCohortMethodsShell(... analyticSettingsDescription=...)` → `cm_acp_specifications_recommendation.json` 에 `source: acp_flow`, `recommendation.status: received`, `manual_inputs.json` 에 `confirmed_via_acp`.
 4. **Shell step_by_step 모드** — `analyticSettingsDescription` 빼고 모드 prompt 에 `1` → ACP 호출 안 떠야 PASS, `cm_acp_specifications_recommendation.json` 생성 안 됨, `manual_inputs.json` 에 `step_by_step` / `not_applicable`.

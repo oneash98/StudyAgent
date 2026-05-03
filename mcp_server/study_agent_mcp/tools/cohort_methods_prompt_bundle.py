@@ -9,36 +9,6 @@ from ._common import with_meta
 
 _CACHE: Optional[Dict[str, Any]] = None
 
-_INSTRUCTION_TEMPLATE = """<Instruction>
-From the provided <Text>, extract the key information and update the
-<Analysis Specifications Template> JSON to configure a population-level
-estimation study using the OMOP-CDM.
-Leave any settings at their default values if they are not specified in the <Text>.
-Refer to the fields and value types provided in the <Analysis Specifications Template>
-and do not add any additional fields.
-For each fields, refer to <JSON Fields Descriptions> to ensure accurate mapping of the relevant information from <Text> to the corresponding JSON structure.
-For each analytic settings section used by the R shell
-(study_population, time_at_risk, propensity_score_adjustment, outcome_model),
-provide a brief rationale and a confidence rating (high | medium | low).
-Follow the <Output Style> exactly.
-</Instruction>"""
-
-_OUTPUT_STYLE_TEMPLATE = """<Output Style>
-Return exactly one fenced JSON block with the shape:
-```json
-{
-  "specifications": { ... full updated cmAnalysis spec ... },
-  "sectionRationales": {
-    "study_population":             { "rationale": "...", "confidence": "high|medium|low" },
-    "time_at_risk":                 { "rationale": "...", "confidence": "high|medium|low" },
-    "propensity_score_adjustment":  { "rationale": "...", "confidence": "high|medium|low" },
-    "outcome_model":                { "rationale": "...", "confidence": "high|medium|low" }
-  }
-}
-```
-No text outside the fenced block.
-</Output Style>"""
-
 
 def _prompt_dir() -> str:
     return os.path.abspath(
@@ -52,6 +22,14 @@ def _analysis_template_path() -> str:
 
 def _field_descriptions_path() -> str:
     return os.path.join(_prompt_dir(), "CM_ANALYSIS_TEMPLATE.md")
+
+
+def _instruction_template_path() -> str:
+    return os.path.join(_prompt_dir(), "instruction_cohort_methods_specs.md")
+
+
+def _output_style_template_path() -> str:
+    return os.path.join(_prompt_dir(), "output_style_cohort_methods_specs.md")
 
 
 def _load_text(path: str) -> str:
@@ -77,8 +55,8 @@ def _build_bundle() -> Dict[str, Any]:
     defaults_spec = _load_json(_analysis_template_path())
     analysis_template = json.dumps(defaults_spec, indent=2)
     return {
-        "instruction_template": _INSTRUCTION_TEMPLATE,
-        "output_style_template": _OUTPUT_STYLE_TEMPLATE,
+        "instruction_template": _load_text(_instruction_template_path()),
+        "output_style_template": _load_text(_output_style_template_path()),
         "annotated_template": analysis_template,
         "analysis_specifications_template": analysis_template,
         "json_field_descriptions": _load_field_descriptions(),

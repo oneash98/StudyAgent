@@ -1,10 +1,10 @@
 import pytest
 
-from study_agent_core.theseus_validation import (
+from study_agent_core.cohort_methods_spec_validation import (
     LLM_FILLED_SECTIONS,
-    THESEUS_TOP_LEVEL_KEYS,
+    COHORT_METHODS_SPEC_TOP_LEVEL_KEYS,
     validate_section,
-    validate_theseus_spec,
+    validate_cohort_methods_spec,
 )
 
 
@@ -60,20 +60,20 @@ def test_top_level_constants() -> None:
         "propensityScoreAdjustment",
         "fitOutcomeModelArgs",
     ]
-    assert "description" in THESEUS_TOP_LEVEL_KEYS
+    assert "description" in COHORT_METHODS_SPEC_TOP_LEVEL_KEYS
 
 
-def test_validate_theseus_spec_accepts_minimal() -> None:
-    ok, missing = validate_theseus_spec(_minimal_valid_spec())
+def test_validate_cohort_methods_spec_accepts_minimal() -> None:
+    ok, missing = validate_cohort_methods_spec(_minimal_valid_spec())
     assert ok is True
     assert missing == []
 
 
-def test_validate_theseus_spec_reports_missing_keys() -> None:
+def test_validate_cohort_methods_spec_reports_missing_keys() -> None:
     spec = _minimal_valid_spec()
     del spec["fitOutcomeModelArgs"]
     del spec["description"]
-    ok, missing = validate_theseus_spec(spec)
+    ok, missing = validate_cohort_methods_spec(spec)
     assert ok is False
     assert set(missing) == {"description", "fitOutcomeModelArgs"}
 
@@ -119,7 +119,7 @@ def test_validate_section_rejects_unknown_section() -> None:
     assert violations and "unknown section" in violations[0]
 
 
-from study_agent_core.theseus_validation import (
+from study_agent_core.cohort_methods_spec_validation import (
     backfill_section_from_defaults,
     merge_client_metadata,
 )
@@ -186,7 +186,7 @@ def test_backfill_section_rejects_unknown_section() -> None:
         backfill_section_from_defaults(spec, defaults, "unknownSection")
 
 
-from study_agent_core.theseus_validation import theseus_to_shell_recommendation
+from study_agent_core.cohort_methods_spec_validation import cohort_methods_spec_to_shell_recommendation
 
 
 def _full_spec_with_tar() -> dict:
@@ -199,10 +199,10 @@ def _full_spec_with_tar() -> dict:
     return spec
 
 
-def test_theseus_to_shell_separates_tar_keys() -> None:
+def test_cohort_methods_spec_to_shell_separates_tar_keys() -> None:
     spec = _full_spec_with_tar()
-    out = theseus_to_shell_recommendation(
-        theseus_spec=spec,
+    out = cohort_methods_spec_to_shell_recommendation(
+        cohort_methods_spec=spec,
         raw_description="desc",
         defaults_snapshot={"x": 1},
         profile_name="P",
@@ -235,9 +235,9 @@ def test_theseus_to_shell_separates_tar_keys() -> None:
     assert out["deferred_inputs"]["function_argument_description"] == "implemented"
 
 
-def test_theseus_to_shell_honors_rec_status_backfilled() -> None:
-    out = theseus_to_shell_recommendation(
-        theseus_spec=_minimal_valid_spec(),
+def test_cohort_methods_spec_to_shell_honors_rec_status_backfilled() -> None:
+    out = cohort_methods_spec_to_shell_recommendation(
+        cohort_methods_spec=_minimal_valid_spec(),
         raw_description="d",
         defaults_snapshot={},
         profile_name="X",
@@ -248,9 +248,9 @@ def test_theseus_to_shell_honors_rec_status_backfilled() -> None:
     assert out["input_method"] == "description_argument"
 
 
-def test_theseus_to_shell_handles_missing_sections() -> None:
-    out = theseus_to_shell_recommendation(
-        theseus_spec={},
+def test_cohort_methods_spec_to_shell_handles_missing_sections() -> None:
+    out = cohort_methods_spec_to_shell_recommendation(
+        cohort_methods_spec={},
         raw_description="d",
         defaults_snapshot={},
         profile_name="X",
@@ -268,11 +268,11 @@ def test_theseus_to_shell_handles_missing_sections() -> None:
     assert out["outcome_model"] == {}
 
 
-def test_theseus_to_shell_does_not_mutate_input() -> None:
+def test_cohort_methods_spec_to_shell_does_not_mutate_input() -> None:
     spec = _full_spec_with_tar()
     snapshot = {"profile_name": "snap"}
-    out = theseus_to_shell_recommendation(
-        theseus_spec=spec,
+    out = cohort_methods_spec_to_shell_recommendation(
+        cohort_methods_spec=spec,
         raw_description="d",
         defaults_snapshot=snapshot,
         profile_name="X",

@@ -60,9 +60,9 @@ def main() -> int:
 
     assert result.get("status") in {"ok", "schema_validation_error", "llm_parse_error"}, result
     assert rec.get("raw_description"), "recommendation.raw_description must be non-empty"
-    theseus = result.get("theseus_specifications") or {}
-    assert theseus.get("cohortDefinitions", {}).get("targetCohort", {}).get("id") == 1001, (
-        "client target cohort ID must be preserved in theseus_specifications"
+    cohort_methods_spec = result.get("cohort_methods_specifications") or {}
+    assert cohort_methods_spec.get("cohortDefinitions", {}).get("targetCohort", {}).get("id") == 1001, (
+        "client target cohort ID must be preserved in cohort_methods_specifications"
     )
     return 0
 
