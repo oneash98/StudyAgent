@@ -5766,7 +5766,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     ")",
     "cmModule <- CohortMethodModule$new()",
     "cohortMethodModuleSpecifications <- cmModule$createModuleSpecifications(",
-    "  cmAnalysesSpecifications = cmAnalysesSpecifications",
+    "  cmAnalysesSpecifications = cmAnalysesSpecifications$toList()",
     ")",
     "",
     "analysisSpecifications <- Strategus::createEmptyAnalysisSpecifications()",
