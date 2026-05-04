@@ -3452,7 +3452,33 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
       for (i in seq_along(defaults)) {
         cat(sprintf("  %s. %s\n", i, defaults[[i]]))
       }
-      cat("Press Enter to keep each suggested statement, or type an edited statement.\n")
+      default_selection <- paste(seq_along(defaults), collapse = ",")
+      use_manual_outcome <- FALSE
+      repeat {
+        entered <- trimws(readline(sprintf(
+          "Keep outcome statements [%s] (comma-separated numbers, 0/none to enter manually, Enter keeps all): ",
+          default_selection
+        )))
+        if (!nzchar(entered)) {
+          selected <- seq_along(defaults)
+        } else if (tolower(entered) %in% c("a", "all")) {
+          selected <- seq_along(defaults)
+        } else if (tolower(entered) %in% c("0", "n", "none")) {
+          selected <- integer(0)
+          use_manual_outcome <- TRUE
+        } else {
+          selected <- suppressWarnings(parse_ids(entered))
+          selected <- unique(selected[!is.na(selected)])
+        }
+        invalid <- setdiff(selected, seq_along(defaults))
+        if (!isTRUE(use_manual_outcome) && (length(selected) == 0 || length(invalid) > 0)) {
+          cat(sprintf("Please enter one or more valid outcome numbers, such as 1 or 1,3, or 0/none to enter manually. Valid choices: %s\n", default_selection))
+          next
+        }
+        defaults <- defaults[selected]
+        break
+      }
+      cat("Press Enter to keep each selected statement, or type an edited statement.\n")
     }
     if (length(defaults) == 0) {
       entered <- prompt_statement("Outcome", default = "")

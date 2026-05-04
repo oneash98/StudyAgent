@@ -349,14 +349,14 @@ Cohort methods intent split (target/comparator/outcome statements):
 ```bash
 curl -s -X POST http://127.0.0.1:8765/flows/cohort_methods_intent_split \
   -H 'Content-Type: application/json' \
-  -d '{"study_intent":"Compare metformin versus sulfonylurea on gastrointestinal bleeding outcomes using a cohort method design"}'
+  -d '{"study_intent":"What is the risk of angioedema or acute myocardial infarction in new users of ACE inhibitors compared to new users of thiazide and thiazide-like diuretics?"}'
 ```
 
 PowerShell (Windows) equivalent:
 
 ```powershell
 $body = @{
-  study_intent = "Compare metformin versus sulfonylurea on gastrointestinal bleeding outcomes using a cohort method design"
+  study_intent = "What is the risk of angioedema or acute myocardial infarction in new users of ACE inhibitors compared to new users of thiazide and thiazide-like diuretics?"
 } | ConvertTo-Json
 
 Invoke-RestMethod `

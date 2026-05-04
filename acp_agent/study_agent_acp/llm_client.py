@@ -190,6 +190,7 @@ def build_intent_split_prompt(
             "STRICT OUTPUT RULES:",
             spec,
             "Return exactly ONE JSON object that matches the output schema.",
+            "Do NOT return the output schema itself or wrap the answer inside a properties object.",
             "Do NOT wrap output in markdown, code fences, or prose.",
             "If uncertain, return required keys with empty arrays/strings.",
             "Keep output under 6 KB.",
@@ -222,6 +223,7 @@ def build_cohort_methods_intent_split_prompt(
             "STRICT OUTPUT RULES:",
             spec,
             "Return exactly ONE JSON object that matches the output schema.",
+            "Do NOT return the output schema itself or wrap the answer inside a properties object.",
             "Do NOT wrap output in markdown, code fences, or prose.",
             "If uncertain, set status to needs_clarification and include clarifying questions.",
             "When status is ok, target_statement, comparator_statement, and outcome_statement must be non-empty.",
@@ -348,6 +350,46 @@ def _extract_json_object(text: str) -> Optional[str]:
     return objects[0] if objects else None
 
 
+def _schema_property_value(value: Any) -> bool:
+    return isinstance(value, dict) and any(
+        key in value
+        for key in (
+            "$ref",
+            "additionalProperties",
+            "anyOf",
+            "const",
+            "enum",
+            "items",
+            "oneOf",
+            "properties",
+            "required",
+            "type",
+        )
+    )
+
+
+def _recover_schema_wrapped_output(
+    parsed: Dict[str, Any],
+    required_keys: Sequence[str],
+) -> Optional[Dict[str, Any]]:
+    properties = parsed.get("properties")
+    if not isinstance(properties, dict):
+        return None
+    if not ({"$schema", "title", "type", "required", "additionalProperties"} & set(parsed)):
+        return None
+
+    recovered = {
+        key: value
+        for key, value in properties.items()
+        if not _schema_property_value(value)
+    }
+    if not recovered:
+        return None
+    if required_keys and not all(key in recovered for key in required_keys):
+        return None
+    return recovered
+
+
 def _parse_json_content(
     text: Optional[str],
     required_keys: Optional[Sequence[str]] = None,
@@ -358,6 +400,7 @@ def _parse_json_content(
     candidates = _extract_json_objects(normalized)
     if not candidates:
         return None, normalized, "json_brace_extract"
+    required = list(required_keys or [])
     parsed_objects: list[Dict[str, Any]] = []
     saw_non_object = False
     saw_decode_error = False
@@ -370,6 +413,9 @@ def _parse_json_content(
         if not isinstance(parsed_candidate, dict):
             saw_non_object = True
             continue
+        recovered = _recover_schema_wrapped_output(parsed_candidate, required)
+        if recovered is not None:
+            parsed_objects.append(recovered)
         parsed_objects.append(parsed_candidate)
     if not parsed_objects:
         if saw_decode_error:
@@ -377,7 +423,6 @@ def _parse_json_content(
         if saw_non_object:
             return None, normalized, "json_not_object"
         return None, normalized, "json_brace_extract"
-    required = list(required_keys or [])
     if required:
         for parsed_candidate in parsed_objects:
             if all(key in parsed_candidate for key in required):

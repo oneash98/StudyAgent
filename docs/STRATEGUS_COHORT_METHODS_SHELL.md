@@ -22,7 +22,8 @@ Workflow diagrams live in `docs/COHORT_METHODS_WORKFLOW.md`.
 2. ACP-assisted split of `studyIntent` into:
    - `targetStatement`
    - `comparatorStatement`
-   - `outcomeStatement`
+   - one or more outcome statements (`outcomeStatement` remains the primary/first outcome for compatibility)
+   - when multiple outcome statements are suggested interactively, choose the subset to keep or enter none/0 to provide a manual outcome before editing or adding statements
 3. Role-specific phenotype recommendation / cache reuse for target, comparator, and outcome cohorts.
 4. Optional cohort ID remap step to avoid collisions (`remapCohortIds`).
 5. Copy cohort JSON definitions from `indexDir/definitions` into selected cohort folders.

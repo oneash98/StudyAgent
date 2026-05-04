@@ -72,7 +72,7 @@ Use `suggestCohortMethodSpecs()` when you want ACP to turn a free-text analytic-
 OHDSIAssistant::acp_connect("http://127.0.0.1:8765")
 
 res <- OHDSIAssistant::suggestCohortMethodSpecs(
-  studyIntent = "Compare metformin versus sulfonylurea on GI bleed outcomes.",
+  studyIntent = "What is the risk of angioedema or acute myocardial infarction in new users of ACE inhibitors compared to new users of thiazide and thiazide-like diuretics?",
   analyticSettingsDescription = "Use one-to-one propensity score matching, a 365-day washout, and a Cox outcome model.",
   interactive = TRUE
 )
@@ -96,7 +96,7 @@ Provide only the study intent and let the shell recommend/select target, compara
 
 ```r
 OHDSIAssistant::runStrategusCohortMethodsShell(
-  studyIntent = "Compare metformin versus sulfonylurea on GI bleed outcomes."
+  studyIntent = "What is the risk of angioedema or acute myocardial infarction in new users of ACE inhibitors compared to new users of thiazide and thiazide-like diuretics?"
 )
 ```
 
@@ -107,11 +107,11 @@ OHDSIAssistant::acp_connect("http://127.0.0.1:8765")
 
 OHDSIAssistant::runStrategusCohortMethodsShell(
   outputDir = "demo-strategus-cohort-methods",
-  studyIntent = "Compare metformin versus sulfonylurea on GI bleed outcomes.",
+  studyIntent = "What is the risk of angioedema or acute myocardial infarction in new users of ACE inhibitors compared to new users of thiazide and thiazide-like diuretics?",
   targetCohortId = 12345,
   comparatorCohortId = 23456,
   outcomeCohortIds = c(34567, 45678),
-  comparisonLabel = "metformin_vs_sulfonylurea"
+  comparisonLabel = "ace_inhibitors_vs_thiazide_diuretics"
 )
 ```
 
@@ -120,11 +120,11 @@ To exercise the analytic-settings flow with stable demo inputs, pass explicit ta
 ```r
 OHDSIAssistant::runStrategusCohortMethodsShell(
   outputDir = "demo-strategus-cohort-methods-analytic-settings",
-  studyIntent = "Compare metformin versus sulfonylurea on GI bleed outcomes.",
+  studyIntent = "What is the risk of angioedema or acute myocardial infarction in new users of ACE inhibitors compared to new users of thiazide and thiazide-like diuretics?",
   targetCohortId = 12345,
   comparatorCohortId = 23456,
   outcomeCohortIds = c(34567),
-  comparisonLabel = "metformin_vs_sulfonylurea",
+  comparisonLabel = "ace_inhibitors_vs_thiazide_diuretics",
   analyticSettingsDescription = "Use one-to-one propensity score matching and a Cox outcome model."
 )
 ```
