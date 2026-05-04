@@ -130,3 +130,50 @@ OHDSIAssistant::runStrategusCohortMethodsShell(
 ```
 
 The shell writes outputs under `outputDir`, including `outputs/cm_analysis_defaults.json`, `outputs/cm_acp_specifications_recommendation.json` for free-text mode, `analysis-settings/cmAnalysis.json`, `analysis-settings/analysisSpecification.json`, and scripts under `scripts/`.
+
+Generated scripts are:
+
+1. `02_apply_improvements.R`
+2. `03_generate_cohorts.R`
+3. `04_keeper_review.R`
+4. `05_diagnostics.R`
+5. `06_cm_spec.R`
+
+Before running scripts that connect to the database, place these two files at the root of
+`outputDir`:
+
+```text
+<outputDir>/strategus-db-details.json
+<outputDir>/strategus-execution-settings.json
+```
+
+`strategus-db-details.json`:
+
+```json
+{
+  "dbms": "postgresql",
+  "DB_SERVER": "localhost/database_name",
+  "DB_PORT": "5432",
+  "DB_USER": "ohdsi",
+  "DB_PASS": "change_me",
+  "DB_DRIVER_PATH": "~/jdbcDrivers",
+  "extraSettings": "sslmode=disable"
+}
+```
+
+`strategus-execution-settings.json`:
+
+```json
+{
+  "cdmDatabaseSchema": "cdm_schema",
+  "workDatabaseSchema": "work_schema",
+  "resultsDatabaseSchema": "results_schema",
+  "vocabularyDatabaseSchema": "vocab_schema",
+  "cohortTable": "cohort",
+  "workFolder": "demo-strategus-cohort-methods/work",
+  "resultsFolder": "demo-strategus-cohort-methods/results",
+  "cohortIdFieldName": "cohort_definition_id",
+  "maxCores": 1
+}
+```
+

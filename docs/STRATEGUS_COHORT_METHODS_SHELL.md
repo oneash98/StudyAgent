@@ -25,6 +25,9 @@ Workflow diagrams live in `docs/COHORT_METHODS_WORKFLOW.md`.
    - one or more outcome statements (`outcomeStatement` remains the primary/first outcome for compatibility)
    - when multiple outcome statements are suggested interactively, choose the subset to keep or enter none/0 to provide a manual outcome before editing or adding statements
 3. Role-specific phenotype recommendation / cache reuse for target, comparator, and outcome cohorts.
+   Interactive runs ask for short analysis labels for selected cohorts and the comparison; labels must
+   be 50 characters or fewer because downstream Strategus/Characterization result tables use short
+   identifier fields.
 4. Optional cohort ID remap step to avoid collisions (`remapCohortIds`).
 5. Copy cohort JSON definitions from `indexDir/definitions` into selected cohort folders.
 6. Optional negative control and covariate concept-set IDs are captured as placeholders.
@@ -187,6 +190,10 @@ The scripts still contain placeholders for values that are not captured in those
   - detailed covariate feature-group selection beyond the current default-plus-include/exclude model
 - TODO: implement ACP/MCP support for negative control and covariate concept-set workflows, then
   update the shell to use those tools instead of writing dummy placeholder concept-set artifacts.
+- Covariate concept-set include/exclude is not fully implemented yet. Because the generated
+  CohortMethod scripts cannot currently materialize exclude covariate concepts, high-correlation
+  covariates may remain in the model and cause `06_cm_spec.R` to fail when
+  `errorOnHighCorrelation` is enabled.
 - Atlas / CohortMethod settings partially supported but still needing broader validation:
   - `minDaysAtRisk`
   - PS trimming (`none`, percent trimming, and equipoise bounds)

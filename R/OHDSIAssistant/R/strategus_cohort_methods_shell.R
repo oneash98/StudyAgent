@@ -1611,6 +1611,46 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     jsonlite::write_json(x, path, pretty = TRUE, auto_unbox = TRUE, na = "null")
   }
 
+  analysis_label_max_chars <- 50L
+  shorten_analysis_label <- function(value, max_chars = analysis_label_max_chars) {
+    value <- trimws(as.character(value %||% ""))
+    if (!nzchar(value)) return(value)
+    if (nchar(value, type = "chars") <= max_chars) return(value)
+    paste0(substr(value, 1L, max_chars - 3L), "...")
+  }
+  prompt_analysis_label <- function(label, default, max_chars = analysis_label_max_chars) {
+    default <- trimws(as.character(default %||% label))
+    if (!nzchar(default)) default <- label
+    if (!isTRUE(interactive)) return(shorten_analysis_label(default, max_chars))
+
+    current <- default
+    repeat {
+      prompt <- if (nchar(current, type = "chars") <= max_chars) {
+        sprintf("%s analysis label [%s]: ", label, current)
+      } else {
+        sprintf(
+          "%s analysis label [%s]:\nLabel must be %s characters or fewer.\n%s analysis label: ",
+          label,
+          current,
+          max_chars,
+          label
+        )
+      }
+      entered <- trimws(readline(prompt))
+      candidate <- if (nzchar(entered)) entered else if (nchar(current, type = "chars") <= max_chars) current else ""
+      if (!nzchar(candidate)) {
+        cat(sprintf("Analysis label must be %s characters or fewer. Please enter a shorter label.\n", max_chars))
+        next
+      }
+      if (nchar(candidate, type = "chars") > max_chars) {
+        cat(sprintf("Analysis label must be %s characters or fewer. Please shorten it.\n", max_chars))
+        current <- candidate
+        next
+      }
+      return(candidate)
+    }
+  }
+
   if (length(autoApplyImprovements) == 0 || is.na(autoApplyImprovements[[1]])) {
     autoApplyImprovements <- !isTRUE(interactive)
   } else {
@@ -4126,13 +4166,26 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   do_comparator_improvements <- isTRUE(improvements_results$comparator$prompt_choice)
   do_outcome_improvements <- isTRUE(improvements_results$outcome$prompt_choice)
 
-  target_name <- lookup_catalog_value(targetCohortId, catalog_df, "name", sprintf("Target cohort %s", targetCohortId))
-  comparator_name <- lookup_catalog_value(comparatorCohortId, catalog_df, "name", sprintf("Comparator cohort %s", comparatorCohortId))
-  outcome_names <- vapply(
+  target_original_name <- lookup_catalog_value(targetCohortId, catalog_df, "name", sprintf("Target cohort %s", targetCohortId))
+  comparator_original_name <- lookup_catalog_value(comparatorCohortId, catalog_df, "name", sprintf("Comparator cohort %s", comparatorCohortId))
+  outcome_original_names <- vapply(
     outcomeCohortIds,
     function(id) lookup_catalog_value(id, catalog_df, "name", sprintf("Outcome cohort %s", id)),
     character(1)
   )
+  target_name <- prompt_analysis_label(
+    "Target",
+    cached_inputs$target_analysis_label %||% cached_inputs$target_name %||% target_original_name
+  )
+  comparator_name <- prompt_analysis_label(
+    "Comparator",
+    cached_inputs$comparator_analysis_label %||% cached_inputs$comparator_name %||% comparator_original_name
+  )
+  outcome_names <- vapply(seq_along(outcome_original_names), function(i) {
+    cached_labels <- cached_inputs$outcome_analysis_labels %||% cached_inputs$outcome_names %||% NULL
+    default_label <- if (!is.null(cached_labels) && length(cached_labels) >= i) cached_labels[[i]] else outcome_original_names[[i]]
+    prompt_analysis_label(sprintf("Outcome %s", i), default_label)
+  }, character(1))
   target_desc <- lookup_catalog_value(targetCohortId, catalog_df, "short_description", "")
   comparator_desc <- lookup_catalog_value(comparatorCohortId, catalog_df, "short_description", "")
   outcome_descs <- vapply(
@@ -4145,10 +4198,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
   if (is.null(comparisonLabel) || !nzchar(trimws(comparisonLabel))) {
     comparisonLabel <- sprintf("%s vs %s", target_name, comparator_name)
   }
-  if (isTRUE(interactive)) {
-    entered <- readline(sprintf("Comparison label [%s]: ", comparisonLabel))
-    if (nzchar(trimws(entered))) comparisonLabel <- entered
-  }
+  comparisonLabel <- prompt_analysis_label("Comparison", comparisonLabel)
 
   cached_analytic_settings <- cached_inputs$analytic_settings %||% list()
   cached_analytics <- if (is.null(cached_analytic_settings)) list() else cached_analytic_settings
@@ -4753,6 +4803,12 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     target_name = target_name,
     comparator_name = comparator_name,
     outcome_names = as.list(outcome_names),
+    target_original_name = target_original_name,
+    comparator_original_name = comparator_original_name,
+    outcome_original_names = as.list(outcome_original_names),
+    target_analysis_label = target_name,
+    comparator_analysis_label = comparator_name,
+    outcome_analysis_labels = as.list(outcome_names),
     target_description = target_desc,
     comparator_description = comparator_desc,
     outcome_descriptions = as.list(outcome_descs),
@@ -4806,6 +4862,7 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     cohort_id = c(new_target_id, new_comparator_id, new_outcome_ids),
     role = c("target", "comparator", rep("outcome", length(new_outcome_ids))),
     cohort_name = c(target_name, comparator_name, outcome_names),
+    original_cohort_name = c(target_original_name, comparator_original_name, outcome_original_names),
     short_description = c(target_desc, comparator_desc, outcome_descs),
     stringsAsFactors = FALSE
   )
@@ -4830,18 +4887,21 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
         target = list(
           source_id = as.integer(selected_target_id),
           cohort_id = as.integer(new_target_id),
-          name = target_name
+          name = target_name,
+          original_name = target_original_name
         ),
         comparator = list(
           source_id = as.integer(selected_comparator_id),
           cohort_id = as.integer(new_comparator_id),
-          name = comparator_name
+          name = comparator_name,
+          original_name = comparator_original_name
         ),
         outcomes = lapply(seq_along(new_outcome_ids), function(i) {
           list(
             source_id = as.integer(selected_outcome_ids[[i]]),
             cohort_id = as.integer(new_outcome_ids[[i]]),
             name = outcome_names[[i]],
+            original_name = outcome_original_names[[i]],
             statement = outcomeStatementsForSelectedCohorts[[i]]
           )
         })
@@ -5022,6 +5082,12 @@ runStrategusCohortMethodsShell <- function(outputDir = "demo-strategus-cohort-me
     outcome_statements = as.list(outcomeStatements),
     outcome_cohort_statements = as.list(outcomeStatementsForSelectedCohorts),
     comparison_label = comparisonLabel,
+    target_analysis_label = target_name,
+    comparator_analysis_label = comparator_name,
+    outcome_analysis_labels = as.list(outcome_names),
+    target_original_name = target_original_name,
+    comparator_original_name = comparator_original_name,
+    outcome_original_names = as.list(outcome_original_names),
     output_dir = output_dir,
     selected_dir = selected_dir,
     patched_dir = patched_dir,
