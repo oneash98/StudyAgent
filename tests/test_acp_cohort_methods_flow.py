@@ -113,6 +113,25 @@ def test_llm_cohort_definitions_are_passed_through_without_request_metadata() ->
     assert result["cohort_methods_specifications"]["cohortDefinitions"]["targetCohort"]["id"] == 666
 
 
+def test_missing_section_rationales_keeps_valid_specification() -> None:
+    defaults = _defaults_spec()
+    payload = _valid_llm_payload(defaults)
+    payload.pop("sectionRationales")
+    payload["specifications"]["getDbCohortMethodDataArgs"]["studyPeriods"] = [
+        {"description": "Primary", "studyStartDate": "20030101", "studyEndDate": ""},
+        {"description": "Sensitivity", "studyStartDate": "20040101", "studyEndDate": ""},
+    ]
+    agent = _build_agent_with_mocks(_make_bundle_payload(), _make_llm_result(payload))
+    result = agent.run_cohort_methods_specs_recommendation_flow(
+        analytic_settings_description="desc",
+    )
+    assert result["status"] == "ok"
+    assert result["recommendation"]["status"] == "received"
+    periods = result["recommendation"]["study_population"]["cohortMethodDataArgs"]["studyPeriods"]
+    assert len(periods) == 2
+    assert result["section_rationales"]["study_population"]["confidence"] == "low"
+
+
 def test_llm_parse_error_returns_defaults_fallback() -> None:
     bad = _make_llm_result({}, status="error")
     bad.parsed_content = None

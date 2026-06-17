@@ -2090,7 +2090,7 @@ class StudyAgent:
         ]
         prompt = "\n".join(prompt_parts)
 
-        llm_result = self._call_llm(prompt, required_keys=["specifications", "sectionRationales"])
+        llm_result = self._call_llm(prompt, required_keys=["specifications"])
         diagnostics.update(self._llm_diagnostics(llm_result))
 
         payload: Optional[Dict[str, Any]] = getattr(llm_result, "parsed_content", None)
@@ -2123,7 +2123,7 @@ class StudyAgent:
             "createPsArgs": "propensity_score_adjustment",
             "fitOutcomeModelArgs": "outcome_model",
         }
-        rationales_in = payload.get("sectionRationales") or {}
+        rationales_in = payload.get("sectionRationales") or payload.get("section_rationales") or {}
         rationales_out: Dict[str, Dict[str, Any]] = {}
         for rationale_section in ("study_population", "time_at_risk", "propensity_score_adjustment", "outcome_model"):
             incoming = rationales_in.get(rationale_section) if isinstance(rationales_in, dict) else None
