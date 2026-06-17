@@ -32,7 +32,7 @@ def test_bundle_returns_expected_keys() -> None:
     assert "analysis_specifications_template" in payload
     assert "json_field_descriptions" in payload
     assert "defaults_spec" in payload
-    assert payload["schema_version"] == "v1.4.0"
+    assert payload["schema_version"] == "v2.0.0"
 
 
 @pytest.mark.mcp
@@ -60,13 +60,13 @@ def test_analysis_template_loads_cm_analysis_template() -> None:
 
 
 @pytest.mark.mcp
-def test_json_field_descriptions_start_at_top_level_shape() -> None:
+def test_json_field_descriptions_load_field_notes() -> None:
     mcp = DummyMCP()
     cohort_methods_prompt_bundle.register(mcp)
     fn = mcp.tools["cohort_methods_prompt_bundle"]
     payload = fn()
     descriptions = payload["json_field_descriptions"]
-    assert descriptions.startswith("## Top-Level Shape")
+    assert descriptions.startswith("# CohortMethod cmAnalysis Field Notes")
     assert "temporary StudyAgent-specific contract" not in descriptions
     assert "fitOutcomeModelArgs" in descriptions
 

@@ -30,9 +30,9 @@ def _make_bundle_payload() -> Dict[str, Any]:
             "output_style_template": "<Output Style>...</Output Style>",
             "annotated_template": _annotated_template(),
             "analysis_specifications_template": _annotated_template(),
-            "json_field_descriptions": "## Top-Level Shape\n...",
+            "json_field_descriptions": "# CohortMethod cmAnalysis Field Notes\n...",
             "defaults_spec": _defaults_spec(),
-            "schema_version": "v1.4.0",
+            "schema_version": "v2.0.0",
         },
     }
 
@@ -54,7 +54,6 @@ def _make_llm_result(content: Dict[str, Any], status: str = "ok") -> MagicMock:
 
 def _valid_llm_payload(defaults: Dict[str, Any]) -> Dict[str, Any]:
     spec = json.loads(json.dumps(defaults))
-    spec["description"] = "Example"
     spec["getDbCohortMethodDataArgs"]["washoutPeriod"] = 365
     return {
         "specifications": spec,
@@ -87,7 +86,7 @@ def test_happy_path_returns_shell_shape() -> None:
     assert rec["mode"] == "free_text"
     assert rec["source"] == "acp_flow"
     assert rec["status"] == "received"
-    assert rec["profile_name"] == "Example"
+    assert rec["profile_name"] == "Recommended from free-text description"
     assert rec["raw_description"] == "compare A vs B with 1-year washout"
     assert rec["study_population"]["cohortMethodDataArgs"]["washoutPeriod"] == 365
     assert rec["defaults_snapshot"] == {}
@@ -100,7 +99,7 @@ def test_happy_path_returns_shell_shape() -> None:
     assert "<Current Analysis Specifications>" not in prompt
     assert "<Analysis Specifications Template>" in prompt
     assert "<JSON Fields Descriptions>" in prompt
-    assert "## Top-Level Shape" in prompt
+    assert "# CohortMethod cmAnalysis Field Notes" in prompt
 
 
 def test_llm_cohort_definitions_are_passed_through_without_request_metadata() -> None:
@@ -131,10 +130,7 @@ def test_llm_parse_error_returns_defaults_fallback() -> None:
 def test_section_schema_violation_backfills_with_low_confidence() -> None:
     defaults = _defaults_spec()
     payload = _valid_llm_payload(defaults)
-    payload["specifications"]["fitOutcomeModelArgs"] = {
-        "modelType": "svm", "stratified": False, "useCovariates": False,
-        "inversePtWeighting": False, "prior": None, "control": None,
-    }
+    payload["specifications"]["fitOutcomeModelArgs"]["outcomeModels"][0]["modelType"] = "svm"
     agent = _build_agent_with_mocks(_make_bundle_payload(), _make_llm_result(payload))
     result = agent.run_cohort_methods_specs_recommendation_flow(
         analytic_settings_description="desc",

@@ -47,7 +47,7 @@ def _load_field_descriptions() -> str:
     marker = "## Top-Level Shape"
     idx = text.find(marker)
     if idx == -1:
-        raise ValueError(f"missing field description marker: {marker}")
+        return text.strip()
     return text[idx:].strip()
 
 
@@ -61,7 +61,7 @@ def _build_bundle() -> Dict[str, Any]:
         "analysis_specifications_template": analysis_template,
         "json_field_descriptions": _load_field_descriptions(),
         "defaults_spec": defaults_spec,
-        "schema_version": "v1.4.0",
+        "schema_version": "v2.0.0",
     }
 
 

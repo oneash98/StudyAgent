@@ -1,24 +1,4 @@
-# CohortMethod cmAnalysis Template v1.4.0 Review Copy
-
-This is a review copy of `CM_ANALYSIS_TEMPLATE.md` with legacy field
-descriptions merged where they match fields in the current
-`cmAnalysis_template.json`.
-
-Fields marked with `Needs review` exist in the current template but did not have
-a matching description in the provided legacy text.
-
-## Top-Level Shape
-
-- `description`: analytic settings profile name.
-- `getDbCohortMethodDataArgs`: settings used when extracting CohortMethod data.
-- `createStudyPopArgs`: settings used to define the study population.
-- `trimByPsArgs`: propensity-score trimming settings, or `null`.
-- `matchOnPsArgs`: propensity-score matching settings, or `null`.
-- `stratifyByPsArgs`: propensity-score stratification settings, or `null`.
-- `createPsArgs`: propensity-score model settings, or `null`.
-- `fitOutcomeModelArgs`: outcome model settings.
-
-## Field Notes
+# CohortMethod cmAnalysis Field Notes
 
 ### `getDbCohortMethodDataArgs`
 
@@ -77,8 +57,8 @@ a matching description in the provided legacy text.
 ### `trimByPsArgs`
 - (default) Use `null` when no PS trimming is selected.
   - Meaning: We can opt to trim the study population, removing people with extreme PS values. We can choose to remove the top and bottom percentage, or we can remove subjects whose preference score falls outside the range we specify. Trimming the cohorts is generally not recommended because it requires discarding observations, which reduces statistical power. It may be desirable to trim in some cases, for example when using IPTW.
-- `trimFraction`: For percent trimming (a fraction, so 5 percent is represented as `0.05`).Set `null` if equipose trimming.
-- `equipoiseBounds`: For equipoise trimming. Set `null` if percent trimming.
+- `trimFraction`: For percent trimming (a fraction, so 5 percent is represented as `0.05`). Default is `0.05`. Set `null` if equipose trimming.
+- `equipoiseBounds`: For equipoise trimming. Default is `[25, 75]`  Set `null` if percent trimming.
 
 ### `matchOnPsArgs`
 
@@ -86,14 +66,14 @@ a matching description in the provided legacy text.
   - Meaning: We can choose to match on the propensity score. When matching,
     specify the maximum number of people from the comparator group to match to
     each person in the target group, and specify the caliper.
-- `maxRatio`: a non-negative integer; `0` means no maximum.
+- `maxRatio`: a non-negative integer; `0` means no maximum. Default is `1`.
   - Meaning: The maximum number of people from the comparator group to match to
     each person in the target group. Typical values are `1` for one-to-one
     matching or a large number, such as `100`, for variable-ratio matching.
-- `caliper`: numeric; `0` means no caliper is used.
+- `caliper`: numeric; `0` means no caliper is used. Default is `0.2`.
   - Meaning: The maximum allowed difference between propensity scores to allow
     a match.
-- `caliperScale`: one of `propensity score`, `standardized`, or `standardized logit`.
+- `caliperScale`: one of `propensity score`, `standardized`, or `standardized logit`. Default is `standardized logit`.
   - Meaning: The caliper can be defined on the propensity score scale, the
     standardized scale in standard deviations of the propensity score
     distributions, or the standardized logit scale in standard deviations after
@@ -104,11 +84,16 @@ a matching description in the provided legacy text.
 
 - Use an object only when stratifying by propensity score. Use `null` when matching on PS or when no PS adjustment is selected.
   - Meaning: We can choose to stratify on the propensity score.
-- `numberOfStrata`: a positive integer.
+- `numberOfStrata`: a positive integer. Default is `5`.
   - Meaning: When stratifying, specify the number of strata.
-- `baseSelection`: one of `all`, `target`, or `comparator`.
+- `baseSelection`: one of `all`, `target`, or `comparator`. Default is `all`.
   - Meaning: When stratifying, specify whether strata are based on the target,
     comparator, or entire study population.
+
+### `inversePtWeighting`
+- `true` or `false`.
+  - Meaning: Instead of stratifying or matching on the propensity score, inverse
+    probability of treatment weighting can be used.
 
 ### `createPsArgs`
 
@@ -155,9 +140,6 @@ a matching description in the provided legacy text.
   - Meaning: Covariates can be added to the outcome model to adjust the
     analysis. The recommended default is to keep the outcome model as simple as
     possible and not include additional covariates.
-- `inversePtWeighting`: `true` or `false`.
-  - Meaning: Instead of stratifying or matching on the propensity score, inverse
-    probability of treatment weighting can be used.
 - `prior` and `control` are `null` when regularization is disabled.
 - `prior.priorType`: currently `laplace`.
   - Meaning: Specify the prior distribution.

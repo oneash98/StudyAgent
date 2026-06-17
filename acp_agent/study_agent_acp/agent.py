@@ -2119,7 +2119,8 @@ class StudyAgent:
         rationale_section_map = {
             "getDbCohortMethodDataArgs": "study_population",
             "createStudyPopArgs": "study_population",
-            "propensityScoreAdjustment": "propensity_score_adjustment",
+            "psSettings": "propensity_score_adjustment",
+            "createPsArgs": "propensity_score_adjustment",
             "fitOutcomeModelArgs": "outcome_model",
         }
         rationales_in = payload.get("sectionRationales") or {}
@@ -2138,20 +2139,9 @@ class StudyAgent:
             rationale_section = rationale_section_map.get(section, section)
 
             section_value = spec.get(section)
-            if section == "propensityScoreAdjustment" and section not in spec:
-                section_value = {
-                    "trimByPsArgs": spec.get("trimByPsArgs"),
-                    "matchOnPsArgs": spec.get("matchOnPsArgs"),
-                    "stratifyByPsArgs": spec.get("stratifyByPsArgs"),
-                    "createPsArgs": spec.get("createPsArgs"),
-                }
             ok_sec, violations = validate_section(section, section_value)
             if not ok_sec:
-                if section == "propensityScoreAdjustment" and section not in defaults_spec:
-                    for ps_section in ("trimByPsArgs", "matchOnPsArgs", "stratifyByPsArgs", "createPsArgs"):
-                        spec[ps_section] = deepcopy(defaults_spec.get(ps_section))
-                else:
-                    spec = backfill_section_from_defaults(spec, defaults_spec, section)
+                spec = backfill_section_from_defaults(spec, defaults_spec, section)
                 diagnostics["failed_sections"].append(section)
                 rationales_out[rationale_section] = {
                     "rationale": (rationales_out[rationale_section].get("rationale") or "") + f" [backfilled: {'; '.join(violations)}]",

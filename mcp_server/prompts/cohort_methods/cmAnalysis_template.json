@@ -1,8 +1,12 @@
 {
-  "description": "",
   "getDbCohortMethodDataArgs": {
-    "studyStartDate": "",
-    "studyEndDate": "",
+    "studyPeriods": [
+      {
+        "description": "",
+        "studyStartDate": "",
+        "studyEndDate": ""
+      }
+    ],
     "firstExposureOnly": false,
     "removeDuplicateSubjects": "keep all",
     "restrictToCommonPeriod": false,
@@ -12,20 +16,31 @@
   "createStudyPopArgs": {
     "removeSubjectsWithPriorOutcome": true,
     "priorOutcomeLookback": 99999,
-    "minDaysAtRisk": 1,
-    "riskWindowStart": 1,
-    "startAnchor": "cohort start",
-    "riskWindowEnd": 0,
-    "endAnchor": "cohort end",
+    "timeAtRisks": [
+      {
+        "description": "",
+        "minDaysAtRisk": 1,
+        "riskWindowStart": 1,
+        "startAnchor": "cohort start",
+        "riskWindowEnd": 0,
+        "endAnchor": "cohort end"
+      }
+    ],
     "censorAtNewRiskWindow": false
   },
-  "trimByPsArgs": null,
-  "matchOnPsArgs": {
-    "maxRatio": 1,
-    "caliper": 0.2,
-    "caliperScale": "standardized logit"
-  },
-  "stratifyByPsArgs": null,
+  "psSettings": [
+    {
+      "description": "",
+      "trimByPsArgs": null,
+      "matchOnPsArgs": {
+        "maxRatio": 1,
+        "caliper": 0.2,
+        "caliperScale": "standardized logit"
+      },
+      "stratifyByPsArgs": null,
+      "inversePtWeighting": false
+    }
+  ],
   "createPsArgs": {
     "maxCohortSizeForFitting": 250000,
     "errorOnHighCorrelation": true,
@@ -44,10 +59,14 @@
     }
   },
   "fitOutcomeModelArgs": {
-    "modelType": "cox",
+    "outcomeModels": [
+      {
+        "description": "",
+        "modelType": "cox",
+        "useCovariates": false
+      }
+    ],
     "stratified": false,
-    "useCovariates": false,
-    "inversePtWeighting": false,
     "prior": {
       "priorType": "laplace",
       "useCrossValidation": true
