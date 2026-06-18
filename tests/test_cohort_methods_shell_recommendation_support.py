@@ -85,6 +85,18 @@ def test_final_summary_prioritizes_structured_core_settings() -> None:
     assert study_period_print < summary_scalar_loop
 
 
+def test_final_summary_omits_counts_and_descriptions_from_structured_settings() -> None:
+    source = SOURCE.read_text(encoding="utf-8")
+
+    summary_start = source.index(".studyAgentPrintFinalSettingsSummary <- function")
+    summary_end = source.index(".studyAgentValueForReviewFile <- function", summary_start)
+    summary_source = source[summary_start:summary_end]
+
+    assert 'cat(sprintf("  - %s: %s\\n", label, length(items)))' not in summary_source
+    assert 'return("no restriction")' in summary_source
+    assert 'item$description' not in summary_source
+
+
 def test_outcome_model_covariates_are_core_prompt_not_remaining_default() -> None:
     source = SOURCE.read_text(encoding="utf-8")
 
