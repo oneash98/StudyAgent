@@ -77,6 +77,10 @@ The endpoint returns:
 }
 ```
 
+`cohort_methods_specifications` is the validated cmAnalysis-shaped object. It
+may contain multiple entries in arrays such as `studyPeriods`, `timeAtRisks`,
+`psSettings`, and `outcomeModels`.
+
 `status` can be:
 
 - `ok`
@@ -114,6 +118,6 @@ projects that object into the four recommendation sections:
 The full validated cmAnalysis-shaped object is returned as
 `cohort_methods_specifications` for traceability.
 
-## TODO
-
-- Support projecting multiple cohort method analyses into the recommendation.
+When the recommendation contains multiple entries in `studyPeriods`, `timeAtRisks`,
+`psSettings`, or `outcomeModels`, the shell preserves those arrays in `cmAnalysis.json`.
+Generated Strategus scripts expand the arrays into multiple CohortMethod analyses.

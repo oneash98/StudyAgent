@@ -52,6 +52,7 @@ At a high level:
 
 - `step_by_step` covers study population, time-at-risk, propensity score adjustment, and outcome model settings.
 - `free_text` uses an ACP recommendation when available and falls back to a local stub if ACP is unavailable.
+- Multiple entries in those settings can be used to define sensitivity analyses within the selected profile.
 - Persisted JSON keeps the existing `CohortMethod`-aligned field names.
 
 The effective selected profile is written to `outputs/cm_analysis_defaults.json`, which retains
@@ -180,9 +181,9 @@ Current Keeper specifics:
 - TODO: implement ACP/MCP support for negative control and covariate concept-set workflows, then update the shell to use those tools instead of writing dummy placeholder concept-set artifacts.
 - Covariate concept-set include/exclude is not fully implemented yet. Because the generated CohortMethod scripts cannot currently materialize exclude covariate concepts, high-correlation covariates may remain in the model and cause `06_cm_spec.R` to fail when `errorOnHighCorrelation` is enabled.
 - Analytic-settings recommendations are mapped into shell settings before script generation, but there is not yet a dedicated validation layer for ACP recommendation payloads.
-- Multiple analytic-settings profiles and multi-comparison support remain for a later stage. Within
-  a single selected profile, `06_cm_spec.R` expands the template-shaped `cmAnalysis.json` array
-  fields into multiple CohortMethod analyses.
+- Multiple analytic-settings profiles remain for a later stage. Within the single selected
+  target/comparator comparison and analytic-settings profile, `06_cm_spec.R` expands the
+  template-shaped `cmAnalysis.json` array fields into multiple CohortMethod analyses.
 
 ## Notes
 

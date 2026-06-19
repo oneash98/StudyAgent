@@ -116,5 +116,4 @@ flowchart TD
 ## Current Explicit Limitations
 
 - Negative-control and covariate concept-set workflows are still placeholder-based.
-- Cohort-method generation currently materializes only the first comparison from `cm_comparisons.json`.
 - ACP analytic-settings recommendations are converted into shell settings, but a dedicated recommendation validation layer is still pending.

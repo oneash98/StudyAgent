@@ -183,7 +183,6 @@ This architecture is implemented, but several workflow capabilities remain incom
 
 - cohort-method negative-control and covariate concept-set workflows are still placeholder-based
 - ACP analytic-settings recommendations are mapped into shell settings without a dedicated validation layer yet
-- cohort-method generation still materializes only the first comparison from `cm_comparisons.json`
 - ACP-based Keeper concept-set approve/edit/rerun UX is still incomplete even though the runtime seam is in place
 
 Those are workflow/product gaps, not package-split gaps.
